@@ -1,0 +1,28 @@
+# ── 課程與參考教材（不屬於本專案產出，且含未去識別化的真實電號）──
+# 智能電力分析系統/ 的文件內有真實電號殘留（見 03-元件規格.md、04-API契約.md），
+# 該教材自己的「教材化注意事項」也要求公開前先改成假名。
+# 要納入版控前請先去識別化。
+架構參考/
+
+# ── 資料產物（依規格 §9：raw / interim / processed 都不進版控）──
+# 注意：corpus/ 與 benchmarks/ 必須進版控，不可放到 data/ 底下
+data/
+
+# ── 機密 ──
+.env
+*.key
+
+# ── Python ──
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# ── 作業系統 / 編輯器 ──
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
