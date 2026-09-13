@@ -16,6 +16,10 @@ from typing import Any
 
 import yaml
 
+from align.crosswalk import CrosswalkRecord, parse_crosswalk
+from align.grain import classify_category, classify_grain
+from align.outage_align import align_outage_rows, summarize_outage_alignment
+from align.pitfalls import generate_pitfalls
 from ingest.validate import (
     DAILY_SYSTEM_COLUMNS,
     PROJECT_ROOT,
@@ -30,10 +34,6 @@ from ingest.validate import (
 SCHEMA_VERSION = "1"
 
 
-def _clean_b_column(value: str) -> str:
-    return value.strip().removesuffix("(萬瓩)").strip()
-
-
 def _text(row: dict[str, str], key: str) -> str:
     return row.get(key, "").strip()
 
@@ -45,10 +45,12 @@ def _load_align_limits(root: Path) -> tuple[float, float]:
 
 
 def _load_rows(paths: dict[str, Path]) -> dict[str, list[dict[str, str]]]:
-    return {
+    rows = {
         name: read_csv(paths[name])[1]
         for name in ("units_csv", "daily_csv", "crosswalk_csv", "daily_long_csv")
     }
+    rows["outage_csv"] = read_csv(paths["outage_csv"])[1] if paths["outage_csv"].is_file() else []
+    return rows
 
 
 def _insert_plants_and_units(
@@ -134,9 +136,12 @@ def _insert_columns_and_crosswalk(
     connection: sqlite3.Connection,
     daily_long: list[dict[str, str]],
     crosswalk: list[dict[str, str]],
+    units: list[dict[str, str]],
     unit_ids_by_name: dict[str, list[int]],
-) -> dict[str, int]:
-    crosswalk_by_column = {_clean_b_column(row["b_column"]): row for row in crosswalk}
+) -> tuple[dict[str, int], list[CrosswalkRecord]]:
+    crosswalk_records = parse_crosswalk(crosswalk)
+    crosswalk_by_column = {record.b_column: record for record in crosswalk_records}
+    fuel_by_unit = {_text(row, "機組名稱"): _text(row, "燃料種類") for row in units}
     column_metadata: dict[str, tuple[str, str]] = {}
     for row in daily_long:
         column = _text(row, "b_column")
@@ -147,8 +152,18 @@ def _insert_columns_and_crosswalk(
 
     ids: dict[str, int] = {}
     for column_id, column in enumerate(sorted(column_metadata), start=1):
-        grain, category = column_metadata[column]
-        has_master = int(column in crosswalk_by_column)
+        _source_grain, source_category = column_metadata[column]
+        record = crosswalk_by_column.get(column)
+        fuels = {fuel_by_unit[name] for name in record.units} if record else set()
+        grain = classify_grain(
+            column,
+            n_units=record.n_units if record else 0,
+            n_plants=record.n_plants if record else 0,
+            is_residual=record.is_residual if record else False,
+            is_bucket=record.is_bucket if record else False,
+        )
+        category = classify_category(fuels, source_category=source_category)
+        has_master = int(record is not None)
         connection.execute(
             "INSERT INTO dim_b_column VALUES (?, ?, ?, ?, ?)",
             (column_id, column, grain, category, has_master),
@@ -156,7 +171,7 @@ def _insert_columns_and_crosswalk(
         ids[column] = column_id
 
     for bridge_id, column in enumerate(sorted(crosswalk_by_column), start=1):
-        row = crosswalk_by_column[column]
+        record = crosswalk_by_column[column]
         column_id = ids[column]
         connection.execute(
             """INSERT INTO bridge_b_column
@@ -166,28 +181,26 @@ def _insert_columns_and_crosswalk(
             (
                 bridge_id,
                 column_id,
-                _text(row, "a_plant"),
-                int(row["n_plants"]),
-                int(row["n_units"]),
-                float(row["cap_a_wankw"]),
-                float(row["obs_max_b"]),
-                float(row["ratio"]),
-                _text(row, "confidence"),
-                int(row["is_residual"]),
-                int(row["is_bucket"]),
-                _text(row, "note"),
+                "|".join(record.plants),
+                record.n_plants,
+                record.n_units,
+                record.capacity_wankw,
+                record.observed_max_wankw,
+                record.ratio,
+                record.confidence,
+                int(record.is_residual),
+                int(record.is_bucket),
+                record.note,
             ),
         )
-        for unit_name in filter(
-            None, (_text_value.strip() for _text_value in row["a_units"].split("|"))
-        ):
+        for unit_name in record.units:
             candidates = unit_ids_by_name.get(unit_name, [])
             if len(candidates) != 1:
                 raise ValueError(f"對齊機組 {unit_name!r} 無法唯一對應 dim_unit")
             connection.execute(
                 "INSERT INTO bridge_b_column_unit VALUES (?, ?)", (column_id, candidates[0])
             )
-    return ids
+    return ids, crosswalk_records
 
 
 def _insert_daily_peak(
@@ -206,72 +219,65 @@ def _insert_daily_peak(
     connection.executemany("INSERT INTO fact_daily_peak VALUES (?, ?, ?)", rows)
 
 
-def _insert_derived_pitfalls(connection: sqlite3.Connection, *, ratio_max: float) -> None:
-    residual_rows = connection.execute(
-        """SELECT c.b_column, b.a_plant
-           FROM bridge_b_column AS b
-           JOIN dim_b_column AS c ON c.id = b.b_column_id
-           WHERE b.is_residual = 1"""
-    ).fetchall()
-    for column, plants in residual_rows:
+def _insert_derived_pitfalls(
+    connection: sqlite3.Connection,
+    records: list[CrosswalkRecord],
+    *,
+    ratio_max: float,
+) -> None:
+    for pitfall in generate_pitfalls(records, ratio_max=ratio_max):
         connection.execute(
             """INSERT INTO meta_pitfall
                (pitfall_code, target_kind, target_name, severity, reason, suggestion, evidence)
-               VALUES (?, 'column', ?, 'refuse', ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
             (
-                "RESIDUAL_TREND",
-                column,
-                "殘差欄的組成可能隨資料版本改變，不能作跨期趨勢比較。",
-                "改查同日系統指標，或使用粒度穩定的具名機組欄位。",
-                json.dumps({"plants": plants.split("|")}, ensure_ascii=False),
+                pitfall.code,
+                pitfall.target_kind,
+                pitfall.target_name,
+                pitfall.severity,
+                pitfall.reason,
+                pitfall.suggestion,
+                json.dumps(pitfall.evidence, ensure_ascii=False),
             ),
         )
 
-    named_plants: set[str] = set()
-    residual_plants: set[str] = set()
-    for plants, is_residual in connection.execute(
-        "SELECT a_plant, is_residual FROM bridge_b_column"
-    ):
-        target = residual_plants if is_residual else named_plants
-        target.update(filter(None, plants.split("|")))
-    for plant in sorted(named_plants & residual_plants):
-        connection.execute(
-            """INSERT INTO meta_pitfall
-               (pitfall_code, target_kind, target_name, severity, reason, suggestion, evidence)
-               VALUES ('PLANT_TOTAL_INCOMPLETE', 'plant', ?, 'disclose', ?, ?, ?)""",
-            (
-                plant,
-                "此電廠同時出現在具名欄位與全系統殘差欄，無法完整還原電廠總出力。",
-                "改查具名機組或分廠的尖峰出力。",
-                json.dumps({"derived_from": "crosswalk"}, ensure_ascii=False),
-            ),
-        )
 
-    for column, ratio, capacity, observed in connection.execute(
-        """SELECT c.b_column, b.ratio, b.cap_a_wankw, b.obs_max_b
-           FROM bridge_b_column AS b
-           JOIN dim_b_column AS c ON c.id = b.b_column_id
-           WHERE b.ratio > ? AND b.is_residual = 0""",
-        (ratio_max,),
-    ):
+def _load_outage_overrides(root: Path) -> dict[str, str]:
+    with (root / "configs/outage_overrides.yaml").open(encoding="utf-8") as handle:
+        return yaml.safe_load(handle).get("overrides", {})
+
+
+def _insert_outages(
+    connection: sqlite3.Connection,
+    outages: list[dict[str, str]],
+    units: list[dict[str, str]],
+    unit_ids_by_name: dict[str, list[int]],
+    *,
+    overrides: dict[str, str],
+) -> dict[str, object]:
+    results = align_outage_rows(outages, units, overrides=overrides)
+    for outage_id, (row, result) in enumerate(zip(outages, results, strict=True), start=1):
+        unit_id = unit_ids_by_name[result.unit_name][0] if result.unit_name else None
+        start_date = parse_source_date(row["開始日期"], context="outage.csv")
+        end_date = parse_source_date(row["結束日期"], context="outage.csv")
         connection.execute(
-            """INSERT INTO meta_pitfall
-               (pitfall_code, target_kind, target_name, severity, reason, suggestion, evidence)
-               VALUES ('KNOWN_CAPACITY_GAP', 'column', ?, 'disclose', ?, ?, ?)""",
+            """INSERT INTO dim_outage
+               (id, unit_id, source_unit_name, fuel, start_date, end_date, reason,
+                date_status, alignment_status)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
-                column,
-                "實測最大出力高於主檔可對應裝置容量，主檔可能缺少機組。",
-                "可查詢出力，但應一併揭露主檔容量缺口。",
-                json.dumps(
-                    {
-                        "ratio": ratio,
-                        "capacity_wankw": capacity,
-                        "observed_max_wankw": observed,
-                    },
-                    ensure_ascii=False,
-                ),
+                outage_id,
+                unit_id,
+                row["機組名稱"].strip(),
+                row["能源別"].strip(),
+                start_date,
+                end_date,
+                row["備註"].strip(),
+                "valid" if start_date <= end_date else "invalid_range",
+                result.status,
             ),
         )
+    return summarize_outage_alignment(results)
 
 
 def _table_counts(connection: sqlite3.Connection) -> dict[str, int]:
@@ -325,6 +331,7 @@ def build_database(
         paths["daily_csv"],
         paths["crosswalk_csv"],
         paths["daily_long_csv"],
+        paths["outage_csv"],
     )
     rows = _load_rows(paths)
     target = target.resolve()
@@ -342,11 +349,22 @@ def build_database(
             connection.executescript((root / "src/ingest/schema.sql").read_text(encoding="utf-8"))
             unit_ids = _insert_plants_and_units(connection, rows["units_csv"])
             _insert_dates_and_system(connection, rows["daily_csv"])
-            column_ids = _insert_columns_and_crosswalk(
-                connection, rows["daily_long_csv"], rows["crosswalk_csv"], unit_ids
+            column_ids, crosswalk_records = _insert_columns_and_crosswalk(
+                connection,
+                rows["daily_long_csv"],
+                rows["crosswalk_csv"],
+                rows["units_csv"],
+                unit_ids,
             )
             _insert_daily_peak(connection, rows["daily_long_csv"], column_ids)
-            _insert_derived_pitfalls(connection, ratio_max=upper_ratio)
+            outage_summary = _insert_outages(
+                connection,
+                rows["outage_csv"],
+                rows["units_csv"],
+                unit_ids,
+                overrides=_load_outage_overrides(root),
+            )
+            _insert_derived_pitfalls(connection, crosswalk_records, ratio_max=upper_ratio)
 
             foreign_key_errors = connection.execute("PRAGMA foreign_key_check").fetchall()
             if foreign_key_errors:
@@ -386,6 +404,7 @@ def build_database(
         "table_counts": counts,
         "database_content_checksum": content_checksum,
         "ratio_thresholds": {"expected_min": lower_ratio, "expected_max": upper_ratio},
+        "outage_alignment": outage_summary,
     }
     if report_path is not None:
         report_path.parent.mkdir(parents=True, exist_ok=True)

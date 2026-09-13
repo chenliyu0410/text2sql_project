@@ -11,7 +11,7 @@ ingest:
 	$(UV) run $(PYTHON) -m ingest.fetch
 
 align:
-	$(UV) run $(PYTHON) -m align.crosswalk
+	$(UV) run $(PYTHON) -m align
 
 db:
 	$(UV) run $(PYTHON) -m ingest.build_db
@@ -47,4 +47,3 @@ test-e2e:
 	$(UV) run pytest -m e2e
 
 test-all: format-check lint test
-

@@ -261,6 +261,7 @@ name = "powerquery-tw"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "certifi" },
     { name = "pyyaml" },
     { name = "sqlglot" },
 ]
@@ -276,6 +277,7 @@ online = [
 
 [package.metadata]
 requires-dist = [
+    { name = "certifi", specifier = ">=2025,<2028" },
     { name = "openai", marker = "extra == 'online'", specifier = ">=1.100,<3" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8,<10" },
     { name = "pyyaml", specifier = ">=6.0,<7" },

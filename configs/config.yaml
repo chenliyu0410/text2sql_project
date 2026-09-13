@@ -7,7 +7,6 @@ paths:
   daily_csv: taipower_align/daily.csv
   crosswalk_csv: taipower_align/crosswalk.csv
   daily_long_csv: taipower_align/daily_long.csv
-  outage_csv: data/raw/outage.csv
+  outage_csv: taipower_align/outage.csv
   database: data/processed/power.db
   data_quality_report: reports/data_quality.json
-

@@ -10,12 +10,15 @@ import argparse
 import hashlib
 import json
 import os
+import ssl
 import tempfile
 import urllib.request
 from collections.abc import Callable, Iterable
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+
+import certifi
 
 from ingest.validate import PROJECT_ROOT
 
@@ -46,7 +49,10 @@ DATASETS = {
 
 def fetch_bytes(url: str) -> bytes:
     request = urllib.request.Request(url, headers={"User-Agent": "PowerQuery-TW/0.1"})
-    with urllib.request.urlopen(request, timeout=120) as response:  # noqa: S310
+    tls_context = ssl.create_default_context(cafile=certifi.where())
+    with urllib.request.urlopen(  # noqa: S310
+        request, timeout=120, context=tls_context
+    ) as response:
         payload = response.read()
     if not payload:
         raise ValueError(f"下載結果為空：{url}")

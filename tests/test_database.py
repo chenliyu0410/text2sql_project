@@ -22,6 +22,7 @@ def test_full_source_fixture_matches_documented_counts() -> None:
         "generation_columns": 64,
         "mapped_columns": 43,
         "daily_peak": 36_928,
+        "outages": 138,
     }
     assert report["date_range"] == {"min": "2025-01-01", "max": "2026-07-31"}
 
@@ -36,6 +37,7 @@ def test_database_contains_star_schema_and_semantic_views(tmp_path: Path) -> Non
     assert report["table_counts"]["dim_b_column"] == 64
     assert report["table_counts"]["fact_daily_peak"] == 36_928
     assert report["table_counts"]["fact_daily_system"] == 577
+    assert report["table_counts"]["dim_outage"] == 138
 
     with sqlite3.connect(target) as connection:
         views = {
@@ -47,6 +49,12 @@ def test_database_contains_star_schema_and_semantic_views(tmp_path: Path) -> Non
         assert views == {"v_outage", "v_peak", "v_system", "v_unit"}
         assert connection.execute("SELECT COUNT(*) FROM v_peak").fetchone()[0] == 36_928
         assert connection.execute("SELECT COUNT(*) FROM v_system").fetchone()[0] == 577
+        assert (
+            connection.execute(
+                "SELECT COUNT(*) FROM dim_outage WHERE date_status = 'invalid_range'"
+            ).fetchone()[0]
+            == 1
+        )
         assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
         manifest = connection.execute(
             "SELECT data_start, data_end, data_checksum FROM meta_manifest WHERE id = 1"

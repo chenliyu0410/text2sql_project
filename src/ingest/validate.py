@@ -62,6 +62,7 @@ DAILY_LONG_REQUIRED = {
     "category",
     "confidence",
 }
+OUTAGE_REQUIRED = {"年度", "能源別", "機組名稱", "開始日期", "結束日期", "備註"}
 
 
 class DataValidationError(ValueError):
@@ -163,16 +164,23 @@ def validate_files(
     daily_csv: Path,
     crosswalk_csv: Path,
     daily_long_csv: Path,
+    outage_csv: Path | None = None,
 ) -> dict[str, Any]:
     unit_fields, units = read_csv(units_csv)
     daily_fields, daily = read_csv(daily_csv)
     crosswalk_fields, crosswalk = read_csv(crosswalk_csv)
     long_fields, daily_long = read_csv(daily_long_csv)
+    outage_fields: list[str] = []
+    outages: list[dict[str, str]] = []
+    if outage_csv is not None and outage_csv.is_file():
+        outage_fields, outages = read_csv(outage_csv)
 
     require_columns(units_csv, unit_fields, UNITS_REQUIRED)
     require_columns(daily_csv, daily_fields, {"日期", *DAILY_SYSTEM_COLUMNS})
     require_columns(crosswalk_csv, crosswalk_fields, CROSSWALK_REQUIRED)
     require_columns(daily_long_csv, long_fields, DAILY_LONG_REQUIRED)
+    if outages:
+        require_columns(outage_csv, outage_fields, OUTAGE_REQUIRED)
 
     _assert_unique(
         ((row["電廠名稱"].strip(), row["機組名稱"].strip()) for row in units),
@@ -225,7 +233,24 @@ def validate_files(
             f"{len(daily_long)} != {len(dates)} × {len(generation_columns)}"
         )
 
+    warnings: list[dict[str, Any]] = []
+    for index, row in enumerate(outages, start=2):
+        start = parse_source_date(row["開始日期"], context=f"outage.csv:{index}")
+        end = parse_source_date(row["結束日期"], context=f"outage.csv:{index}")
+        if start > end:
+            warnings.append(
+                {
+                    "code": "OUTAGE_DATE_INVALID",
+                    "row": index,
+                    "unit": row["機組名稱"],
+                    "start_date": start,
+                    "end_date": end,
+                }
+            )
+
     paths = (units_csv, daily_csv, crosswalk_csv, daily_long_csv)
+    if outages and outage_csv is not None:
+        paths = (*paths, outage_csv)
     hashes = {path.name: sha256_file(path) for path in paths}
     checksum_input = "\n".join(f"{name}:{hashes[name]}" for name in sorted(hashes))
     return {
@@ -238,10 +263,12 @@ def validate_files(
             "generation_columns": len(generation_columns),
             "mapped_columns": len(crosswalk),
             "daily_peak": len(daily_long),
+            "outages": len(outages),
         },
         "date_range": {"min": min(dates), "max": max(dates)},
         "source_sha256": hashes,
         "data_checksum": hashlib.sha256(checksum_input.encode()).hexdigest(),
+        "warnings": warnings,
     }
 
 
@@ -252,6 +279,7 @@ def validate_configured_files(root: Path = PROJECT_ROOT) -> dict[str, Any]:
         paths["daily_csv"],
         paths["crosswalk_csv"],
         paths["daily_long_csv"],
+        paths["outage_csv"],
     )
 
 

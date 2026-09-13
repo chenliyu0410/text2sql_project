@@ -18,7 +18,7 @@ SQLite 物理層使用英文 `snake_case`，Text2SQL 只允許查詢中文 `v_*`
 | `bridge_b_column_unit` | 複合鍵 | B 欄位與機組的多對多關係 | 解決多機彙總與離島／殘差桶的多機組對應 |
 | `fact_daily_peak` | `date, b_column_id` | 一日一欄位 | `peak_wankw` 是系統尖峰時刻的瞬時出力，不是發電量 |
 | `fact_daily_system` | `date` | 一日一列 | 系統尖峰與用電指標；功率單位萬瓩，用電單位百萬度 |
-| `dim_outage` | `id` | 一列一歲修事件 | Phase 2 加入 `d006008` 對齊；`unit_id` 允許為 NULL 以保留未對齊事件 |
+| `dim_outage` | `id` | 一列一歲修事件 | `d006008` 對齊；`unit_id` 允許為 NULL 以保留未對齊事件。官方快照有 1 列結束日早於開始日，原值保留並以 `date_status=invalid_range` 標記 |
 | `meta_pitfall` | `id` | 一列一對象的陷阱 | 由 crosswalk 的殘差、容量比與電廠重疊關係產生，不另外手寫對象清單 |
 | `meta_manifest` | 固定 `id=1` | 一個資料庫版本 | 資料期間、來源 SHA-256、列數、schema 版本與內容 checksum |
 

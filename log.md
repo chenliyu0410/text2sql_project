@@ -14,11 +14,25 @@
 
 ## 進行中
 
-- CP-003：Phase 2 — 純函式對齊模組、歲修命名對齊與完整 `meta_pitfall`。
+- CP-004：Phase 3 — RAG 語料、四份獨立題庫、防洩漏測試與 staging／promotion 骨架。
+
+## CP-003 — Phase 2 對齊層與歲修資料
+
+- 時間：2026-09-13 13:24 +08:00
+- 狀態：已完成
+- 範圍：命名轉換、粒度／燃料分類、crosswalk 容量比驗證、歲修對齊、從對齊結果產生 `meta_pitfall`，所有核心郏輯都是無資料庫、無網路 I/O 的純函式。
+- Crosswalk：43 列唯一對應、175 台機組全數涵蓋，ratio 重算與異常備註檢查無 issue。
+- 歲修快照：官方 `d006008` 138 列已以內容 SHA-256 `f0b30c1d32a3…` 封存。自動對齊 125 列（90.58%），達成 ≥ 90% 驗收門檻。
+- 未對齊：`大潭#8`、`大潭#9`、`興達新#1` 不存在目前機組主檔；`立霧` 可指向兩台機組。全數留在 `reports/outage_unmatched.txt` 供人工核對，沒有猜測。
+- 下載問題與修正：Python 3.13 系統 CA 第一次拒絕官方端點的舊憑證鏈。改用 `certifi` 信任 CA bundle 後通過，未關閉 TLS 驗證。
+- 官方資料警告：歲修第 102 列的開始日 `2027-12-20` 晚於結束日 `2027-02-23`。系統保留原值、設 `date_status=invalid_range`，不自行猜測正確年份。
+- 資料陷阱：`meta_pitfall` 共 10 列：`RESIDUAL_TREND` 2、`PLANT_TOTAL_INCOMPLETE` 6、`KNOWN_CAPACITY_GAP` 2。
+- 驗證：`python -m align`、重建 `power.db`、`ruff format --check .`、`ruff check .`、`pytest -q` 全數通過（15 passed）。
+- 回退方式：回退 `feat: extract alignment layer and import outages` 這個 commit；CP-001／002 保持不動。
 
 ## CP-002 — Phase 1 SQLite 資料層
 
-- 時間：2026-09-13 13:32 +08:00
+- 時間：2026-09-13 13:18 +08:00
 - 狀態：已完成
 - 範圍：資料下載與內容尋址封存、CSV schema／日期／數值／重複鍵驗證、SQLite 星狀模型、四個 `v_*` 語意檢視、`meta_manifest`、資料字典與品質報告。
 - 驗收數字：22 座電廠、175 台機組、64 個原始出力欄位、43 個主檔對應、36,928 筆尖峰出力、577 筆系統日資料。

@@ -7,7 +7,8 @@
     "daily_system": 577,
     "generation_columns": 64,
     "mapped_columns": 43,
-    "daily_peak": 36928
+    "daily_peak": 36928,
+    "outages": 138
   },
   "date_range": {
     "min": "2025-01-01",
@@ -17,9 +18,19 @@
     "units.csv": "e14be5bd3280bd6f7f1a02d9d7fc92c8c5f55bb9d45c2f0a5be2636243609d3e",
     "daily.csv": "b502dd35d3d92ca3bacf5d6db5a3f71e89877913a0e6c77eb29e32e42b6046a8",
     "crosswalk.csv": "4119ef328f86e992a07641198ccecceb6b60708e437e093ee00c0dac5965d60e",
-    "daily_long.csv": "c84d9f92e8087cfea82fdee7a4720c500a38a21b790c56ce33019f283b3a505e"
+    "daily_long.csv": "c84d9f92e8087cfea82fdee7a4720c500a38a21b790c56ce33019f283b3a505e",
+    "outage.csv": "1e8daa2976d0db1b9bccf45012c043aecb4af338005ea7a10c578cc7b168557f"
   },
-  "data_checksum": "02a263bc63629494b00662d205b18e0151ec052a81cf287cc216b0bc6ed6bedf",
+  "data_checksum": "484632d9008c223178d152cef41f77ba4881caa1d1a62a70f7e2791e4d4e4d74",
+  "warnings": [
+    {
+      "code": "OUTAGE_DATE_INVALID",
+      "row": 102,
+      "unit": "台中#8",
+      "start_date": "2027-12-20",
+      "end_date": "2027-02-23"
+    }
+  ],
   "schema_version": "1",
   "database": "C:\\Users\\chenl\\OneDrive\\桌面\\text2sql\\data\\processed\\power.db",
   "table_counts": {
@@ -31,12 +42,28 @@
     "bridge_b_column_unit": 175,
     "fact_daily_peak": 36928,
     "fact_daily_system": 577,
-    "dim_outage": 0,
+    "dim_outage": 138,
     "meta_pitfall": 10
   },
-  "database_content_checksum": "483bd7da21572ce209bf55fe010365c2c699b49509e813bd2b30894e35c517cf",
+  "database_content_checksum": "388ec3d6629b23dce00246b0503fbab8569856f058c55ad347b898e84a9b94f3",
   "ratio_thresholds": {
     "expected_min": 0.8,
     "expected_max": 1.06
+  },
+  "outage_alignment": {
+    "total": 138,
+    "matched": 125,
+    "match_rate": 0.9057971014492754,
+    "status_counts": {
+      "ambiguous": 1,
+      "matched": 125,
+      "unmatched": 12
+    },
+    "unresolved_names": [
+      "大潭#8",
+      "大潭#9",
+      "立霧",
+      "興達新#1"
+    ]
   }
 }

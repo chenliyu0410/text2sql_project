@@ -84,6 +84,7 @@ CREATE TABLE dim_outage (
     start_date DATE,
     end_date DATE,
     reason TEXT,
+    date_status TEXT NOT NULL CHECK (date_status IN ('valid', 'invalid_range')),
     alignment_status TEXT NOT NULL DEFAULT 'unmatched'
 );
 
@@ -165,6 +166,7 @@ SELECT
     o.start_date AS "開始日期",
     o.end_date AS "結束日期",
     o.reason AS "原因",
+    o.date_status AS "日期狀態",
     o.alignment_status AS "對齊狀態"
 FROM dim_outage AS o
 LEFT JOIN dim_unit AS u ON u.id = o.unit_id
