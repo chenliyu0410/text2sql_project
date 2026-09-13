@@ -1,0 +1,7 @@
+provider: openai
+model_env: OPENAI_MODEL
+default_model: gpt-5.4-mini
+temperature: 0
+max_attempts: 3
+request_timeout_seconds: 30
+

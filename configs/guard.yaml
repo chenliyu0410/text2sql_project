@@ -1,0 +1,19 @@
+sql:
+  max_rows: 200
+  timeout_seconds: 5
+  require_limit: true
+  allowed_view_prefix: v_
+
+semantic:
+  enabled: true
+  rules:
+    PEAK_SUM_ACROSS_DAYS: true
+    UNIT_MISMATCH: true
+    NO_UNIT_DETAIL: true
+    RESIDUAL_TREND: true
+    PLANT_TOTAL_INCOMPLETE: true
+    KNOWN_CAPACITY_GAP: true
+    ZERO_PERIOD_AMBIGUOUS: true
+    AMBIGUOUS_UNIT_NAME: true
+    DATA_RANGE_OUT_OF_BOUNDS: true
+

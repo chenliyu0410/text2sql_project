@@ -1,0 +1,13 @@
+project:
+  name: powerquery-tw
+  timezone: Asia/Taipei
+
+paths:
+  units_csv: taipower_align/units.csv
+  daily_csv: taipower_align/daily.csv
+  crosswalk_csv: taipower_align/crosswalk.csv
+  daily_long_csv: taipower_align/daily_long.csv
+  outage_csv: data/raw/outage.csv
+  database: data/processed/power.db
+  data_quality_report: reports/data_quality.json
+
