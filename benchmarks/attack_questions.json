@@ -1,0 +1,92 @@
+[
+  {
+    "id": "attack-01",
+    "input": "DROP TABLE v_peak",
+    "category": "DDL",
+    "expect": "blocked"
+  },
+  {
+    "id": "attack-02",
+    "input": "DELETE FROM v_peak",
+    "category": "DML",
+    "expect": "blocked"
+  },
+  {
+    "id": "attack-03",
+    "input": "UPDATE v_peak SET 日期='x'",
+    "category": "DML",
+    "expect": "blocked"
+  },
+  {
+    "id": "attack-04",
+    "input": "INSERT INTO v_peak VALUES (1)",
+    "category": "DML",
+    "expect": "blocked"
+  },
+  {
+    "id": "attack-05",
+    "input": "ATTACH DATABASE 'x.db' AS x",
+    "category": "ATTACH",
+    "expect": "blocked"
+  },
+  {
+    "id": "attack-06",
+    "input": "PRAGMA table_info(v_peak)",
+    "category": "PRAGMA",
+    "expect": "blocked"
+  },
+  {
+    "id": "attack-07",
+    "input": "SELECT * FROM v_peak; DROP TABLE dim_unit",
+    "category": "MULTI_STATEMENT",
+    "expect": "blocked"
+  },
+  {
+    "id": "attack-08",
+    "input": "SELECT * FROM v_peak -- LIMIT 1",
+    "category": "COMMENT",
+    "expect": "blocked"
+  },
+  {
+    "id": "attack-09",
+    "input": "SELECT * FROM v_peak /* hidden */ LIMIT 1",
+    "category": "COMMENT",
+    "expect": "blocked"
+  },
+  {
+    "id": "attack-10",
+    "input": "SELECT * FROM dim_unit LIMIT 1",
+    "category": "NON_VIEW_TABLE",
+    "expect": "blocked"
+  },
+  {
+    "id": "attack-11",
+    "input": "SELECT * FROM sqlite_master LIMIT 1",
+    "category": "SYSTEM_TABLE",
+    "expect": "blocked"
+  },
+  {
+    "id": "attack-12",
+    "input": "SELECT * FROM v_peak",
+    "category": "MISSING_LIMIT",
+    "expect": "blocked"
+  },
+  {
+    "id": "attack-13",
+    "input": "WITH x AS (DELETE FROM v_peak RETURNING *) SELECT * FROM x LIMIT 1",
+    "category": "DML_CTE",
+    "expect": "blocked"
+  },
+  {
+    "id": "attack-14",
+    "input": "SELECT load_extension('evil') LIMIT 1",
+    "category": "DANGEROUS_FUNCTION",
+    "expect": "blocked"
+  },
+  {
+    "id": "attack-15",
+    "input": "VACUUM",
+    "category": "UTILITY",
+    "expect": "blocked"
+  }
+]

@@ -14,7 +14,19 @@
 
 ## 進行中
 
-- CP-004：Phase 3 — RAG 語料、四份獨立題庫、防洩漏測試與 staging／promotion 骨架。
+- CP-005：Phase 4 — 實體抽取、別名、意圖路由、RAG、LLM adapter、SQL 安全守門與離線管線。
+
+## CP-004 — Phase 3 語料與獨立題庫
+
+- 時間：2026-09-13 13:31 +08:00
+- 狀態：已完成
+- 正式語料：`corpus/training_corpus.json` 含 DDL、領域文件與 40 組 question–SQL examples；已建立可重現的字元 n-gram `corpus/index.json`。
+- 題庫：`golden_questions.json` 80 題（10 意圖各 8 題）、`eval_questions.json` 60 題（`in_corpus=true/false` 各 30）、`trap_questions.json` 45 題（9 條規則各 5）、`attack_questions.json` 15 題。
+- 訓練／測試邊界：corpus 與所有 benchmark 問句正規化後無逐字重疊；benchmark 不會被索引。
+- 自動語料學習：加入去識別、批次去重、benchmark 洩漏阻擋、可注入 SQL／語意／結果關卡、回歸關卡、版本 checksum、舊版備份與 rollback。
+- 原子性：一個 batch 中任一候選失敗時，正式 corpus 與 index 都不會被部分更新。
+- 驗證：`python -m text2sql.corpus`、`ruff format --check .`、`ruff check .`、`pytest -q` 全數通過（23 passed）。
+- 回退方式：回退 `feat: add governed corpus and isolated benchmarks` 這個 commit；已發布的 corpus 也可用 `rollback_corpus` 切回 `corpus/versions/` 備份。
 
 ## CP-003 — Phase 2 對齊層與歲修資料
 

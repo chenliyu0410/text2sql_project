@@ -1,0 +1,402 @@
+[
+  {
+    "id": "golden-unit_day-01",
+    "question": "2026年五月二日台中2號機尖峰時輸出多少",
+    "intent": "unit_day"
+  },
+  {
+    "id": "golden-unit_day-02",
+    "question": "幫我找2025年十一月八日林口3號機出力",
+    "intent": "unit_day"
+  },
+  {
+    "id": "golden-unit_day-03",
+    "question": "德基在2026年四月十日的功率",
+    "intent": "unit_day"
+  },
+  {
+    "id": "golden-unit_day-04",
+    "question": "查大林2號機2025年七月二十日資料",
+    "intent": "unit_day"
+  },
+  {
+    "id": "golden-unit_day-05",
+    "question": "去年六月一日台中5號機尖峰輸出",
+    "intent": "unit_day"
+  },
+  {
+    "id": "golden-unit_day-06",
+    "question": "2026-03-15青山的出力數字",
+    "intent": "unit_day"
+  },
+  {
+    "id": "golden-unit_day-07",
+    "question": "我想知道林口一號某天的尖峰值",
+    "intent": "unit_day"
+  },
+  {
+    "id": "golden-unit_day-08",
+    "question": "指定日期查一台機組功率",
+    "intent": "unit_day"
+  },
+  {
+    "id": "golden-unit_extreme-01",
+    "question": "林口2號機2026年最高輸出",
+    "intent": "unit_extreme"
+  },
+  {
+    "id": "golden-unit_extreme-02",
+    "question": "去年台中7號最低非零出力",
+    "intent": "unit_extreme"
+  },
+  {
+    "id": "golden-unit_extreme-03",
+    "question": "大觀二今年上半年最大值日期",
+    "intent": "unit_extreme"
+  },
+  {
+    "id": "golden-unit_extreme-04",
+    "question": "興達4號機歷史最高尖峰值",
+    "intent": "unit_extreme"
+  },
+  {
+    "id": "golden-unit_extreme-05",
+    "question": "通霄彙總去年最小輸出",
+    "intent": "unit_extreme"
+  },
+  {
+    "id": "golden-unit_extreme-06",
+    "question": "2025年德基出力峰值是哪天",
+    "intent": "unit_extreme"
+  },
+  {
+    "id": "golden-unit_extreme-07",
+    "question": "台中9號機期間內最低值",
+    "intent": "unit_extreme"
+  },
+  {
+    "id": "golden-unit_extreme-08",
+    "question": "找單一機組一段時間的極值",
+    "intent": "unit_extreme"
+  },
+  {
+    "id": "golden-daily_ranking-01",
+    "question": "2026年六月十八日出力最大的五欄",
+    "intent": "daily_ranking"
+  },
+  {
+    "id": "golden-daily_ranking-02",
+    "question": "某天機組尖峰功率排行榜",
+    "intent": "daily_ranking"
+  },
+  {
+    "id": "golden-daily_ranking-03",
+    "question": "2025-02-10前三大出力機組",
+    "intent": "daily_ranking"
+  },
+  {
+    "id": "golden-daily_ranking-04",
+    "question": "七月一日非零出力最小五名",
+    "intent": "daily_ranking"
+  },
+  {
+    "id": "golden-daily_ranking-05",
+    "question": "指定日燃氣欄位出力排序",
+    "intent": "daily_ranking"
+  },
+  {
+    "id": "golden-daily_ranking-06",
+    "question": "2026-05-20前十名尖峰出力",
+    "intent": "daily_ranking"
+  },
+  {
+    "id": "golden-daily_ranking-07",
+    "question": "同一天各機組功率由高到低",
+    "intent": "daily_ranking"
+  },
+  {
+    "id": "golden-daily_ranking-08",
+    "question": "查每日出力名次",
+    "intent": "daily_ranking"
+  },
+  {
+    "id": "golden-system_metric-01",
+    "question": "2026年六月備轉率最低日",
+    "intent": "system_metric"
+  },
+  {
+    "id": "golden-system_metric-02",
+    "question": "去年最高尖峰負載出現在哪天",
+    "intent": "system_metric"
+  },
+  {
+    "id": "golden-system_metric-03",
+    "question": "列今年七月的備轉容量",
+    "intent": "system_metric"
+  },
+  {
+    "id": "golden-system_metric-04",
+    "question": "2025各月平均負載",
+    "intent": "system_metric"
+  },
+  {
+    "id": "golden-system_metric-05",
+    "question": "哪一天淨尖峰供電能力最小",
+    "intent": "system_metric"
+  },
+  {
+    "id": "golden-system_metric-06",
+    "question": "查指定期間民生用電趨勢",
+    "intent": "system_metric"
+  },
+  {
+    "id": "golden-system_metric-07",
+    "question": "本資料最新日的備轉率",
+    "intent": "system_metric"
+  },
+  {
+    "id": "golden-system_metric-08",
+    "question": "系統指標的期間極值",
+    "intent": "system_metric"
+  },
+  {
+    "id": "golden-plant_units-01",
+    "question": "列出台中電廠所有設備",
+    "intent": "plant_units"
+  },
+  {
+    "id": "golden-plant_units-02",
+    "question": "大潭發電廠有哪幾台機組",
+    "intent": "plant_units"
+  },
+  {
+    "id": "golden-plant_units-03",
+    "question": "查明潭廠機組及燃料",
+    "intent": "plant_units"
+  },
+  {
+    "id": "golden-plant_units-04",
+    "question": "東部發電廠設備清單",
+    "intent": "plant_units"
+  },
+  {
+    "id": "golden-plant_units-05",
+    "question": "興達廠各機裝置容量",
+    "intent": "plant_units"
+  },
+  {
+    "id": "golden-plant_units-06",
+    "question": "哪一些機組屬於大觀電廠",
+    "intent": "plant_units"
+  },
+  {
+    "id": "golden-plant_units-07",
+    "question": "通霄發電廠的機組名稱",
+    "intent": "plant_units"
+  },
+  {
+    "id": "golden-plant_units-08",
+    "question": "依電廠查機組主檔",
+    "intent": "plant_units"
+  },
+  {
+    "id": "golden-fuel_stats-01",
+    "question": "煤機總容量有多少",
+    "intent": "fuel_stats"
+  },
+  {
+    "id": "golden-fuel_stats-02",
+    "question": "不同燃料各幾台設備",
+    "intent": "fuel_stats"
+  },
+  {
+    "id": "golden-fuel_stats-03",
+    "question": "天然氣機組容量平均",
+    "intent": "fuel_stats"
+  },
+  {
+    "id": "golden-fuel_stats-04",
+    "question": "水力裝置容量排行",
+    "intent": "fuel_stats"
+  },
+  {
+    "id": "golden-fuel_stats-05",
+    "question": "重油機組容量合計",
+    "intent": "fuel_stats"
+  },
+  {
+    "id": "golden-fuel_stats-06",
+    "question": "輕柴油設備數量",
+    "intent": "fuel_stats"
+  },
+  {
+    "id": "golden-fuel_stats-07",
+    "question": "按燃料統計裝置容量",
+    "intent": "fuel_stats"
+  },
+  {
+    "id": "golden-fuel_stats-08",
+    "question": "哪種燃料的機組最多",
+    "intent": "fuel_stats"
+  },
+  {
+    "id": "golden-outage-01",
+    "question": "2026年四月正在歲修的機組",
+    "intent": "outage"
+  },
+  {
+    "id": "golden-outage-02",
+    "question": "立霧修復工程何時結束",
+    "intent": "outage"
+  },
+  {
+    "id": "golden-outage-03",
+    "question": "查台中八號機維修區間",
+    "intent": "outage"
+  },
+  {
+    "id": "golden-outage-04",
+    "question": "2025年十二月底的停機事件",
+    "intent": "outage"
+  },
+  {
+    "id": "golden-outage-05",
+    "question": "明潭五號機歲修紀錄",
+    "intent": "outage"
+  },
+  {
+    "id": "golden-outage-06",
+    "question": "列出日期有效的歲修",
+    "intent": "outage"
+  },
+  {
+    "id": "golden-outage-07",
+    "question": "哪一些機組目前維修中",
+    "intent": "outage"
+  },
+  {
+    "id": "golden-outage-08",
+    "question": "依日期區間找歲修排程",
+    "intent": "outage"
+  },
+  {
+    "id": "golden-zero_days-01",
+    "question": "立霧今年零出力幾天",
+    "intent": "zero_days"
+  },
+  {
+    "id": "golden-zero_days-02",
+    "question": "去年林口一號沒有出力的日數",
+    "intent": "zero_days"
+  },
+  {
+    "id": "golden-zero_days-03",
+    "question": "大觀二上半年有發電幾天",
+    "intent": "zero_days"
+  },
+  {
+    "id": "golden-zero_days-04",
+    "question": "列出台中三號零值日期",
+    "intent": "zero_days"
+  },
+  {
+    "id": "golden-zero_days-05",
+    "question": "德基2025年非零天數",
+    "intent": "zero_days"
+  },
+  {
+    "id": "golden-zero_days-06",
+    "question": "某台機組期間內停機日數",
+    "intent": "zero_days"
+  },
+  {
+    "id": "golden-zero_days-07",
+    "question": "統計尖峰輸出等於零的天",
+    "intent": "zero_days"
+  },
+  {
+    "id": "golden-zero_days-08",
+    "question": "查一台機組有值的日期數",
+    "intent": "zero_days"
+  },
+  {
+    "id": "golden-comparison-01",
+    "question": "比較林口一號二號七月平均出力",
+    "intent": "comparison"
+  },
+  {
+    "id": "golden-comparison-02",
+    "question": "台中三號四號去年最大值誰高",
+    "intent": "comparison"
+  },
+  {
+    "id": "golden-comparison-03",
+    "question": "大觀和大觀二上半年曲線",
+    "intent": "comparison"
+  },
+  {
+    "id": "golden-comparison-04",
+    "question": "南部及興達燃氣六月峰值",
+    "intent": "comparison"
+  },
+  {
+    "id": "golden-comparison-05",
+    "question": "比較兩台機組同日輸出",
+    "intent": "comparison"
+  },
+  {
+    "id": "golden-comparison-06",
+    "question": "林口二號與三號年度平均",
+    "intent": "comparison"
+  },
+  {
+    "id": "golden-comparison-07",
+    "question": "兩個彙總欄的每日趨勢",
+    "intent": "comparison"
+  },
+  {
+    "id": "golden-comparison-08",
+    "question": "指定兩台機組期間表現",
+    "intent": "comparison"
+  },
+  {
+    "id": "golden-other-01",
+    "question": "七月每日負載和備轉率",
+    "intent": "other"
+  },
+  {
+    "id": "golden-other-02",
+    "question": "容量與實測最大值散點資料",
+    "intent": "other"
+  },
+  {
+    "id": "golden-other-03",
+    "question": "去年每月平均備轉率",
+    "intent": "other"
+  },
+  {
+    "id": "golden-other-04",
+    "question": "容量缺口欄位有哪些",
+    "intent": "other"
+  },
+  {
+    "id": "golden-other-05",
+    "question": "列出所有資料可用日期",
+    "intent": "other"
+  },
+  {
+    "id": "golden-other-06",
+    "question": "查各類別歷史最大出力",
+    "intent": "other"
+  },
+  {
+    "id": "golden-other-07",
+    "question": "每月工業與民生用電比較",
+    "intent": "other"
+  },
+  {
+    "id": "golden-other-08",
+    "question": "顯示資料庫最新一日系統摘要",
+    "intent": "other"
+  }
+]
