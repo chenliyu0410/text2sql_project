@@ -60,15 +60,23 @@ class DisabledLLM:
 
 
 class OpenAILLM:
-    def __init__(self, *, model: str | None = None, api_key: str | None = None):
+    def __init__(
+        self,
+        *,
+        model: str | None = None,
+        api_key: str | None = None,
+        timeout_seconds: float = 30.0,
+    ):
         key = api_key or os.getenv("OPENAI_API_KEY")
         if not key:
             raise RuntimeError("缺少 OPENAI_API_KEY；線上查詢不會自動改用 FakeLLM。")
+        if timeout_seconds <= 0:
+            raise ValueError("timeout_seconds 必須大於 0。")
         try:
             from openai import OpenAI
         except ImportError as error:
             raise RuntimeError("請先執行 `uv sync --extra online`。") from error
-        self.client = OpenAI(api_key=key)
+        self.client = OpenAI(api_key=key, timeout=timeout_seconds, max_retries=0)
         self.model = model or os.getenv("OPENAI_MODEL", "gpt-5.4-mini")
 
     def generate(self, prompt: str) -> str:
@@ -84,7 +92,17 @@ class OpenAILLM:
                         "type": "object",
                         "properties": {
                             "sql": {"type": "string"},
-                            "params": {"type": "array", "items": {}},
+                            "params": {
+                                "type": "array",
+                                "items": {
+                                    "anyOf": [
+                                        {"type": "string"},
+                                        {"type": "number"},
+                                        {"type": "boolean"},
+                                        {"type": "null"},
+                                    ]
+                                },
+                            },
                         },
                         "required": ["sql", "params"],
                         "additionalProperties": False,

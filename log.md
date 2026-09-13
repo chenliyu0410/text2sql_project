@@ -12,9 +12,19 @@
 - 使用者原有未提交變更：`.gitignore`、`README.md`、系統規格、`docs/AI_AGENT_COLLABORATION.md`、`scripts/`、`參考資料/`。
 - 回退方式：只回退 CP-001 之後新增的實作檔；不對上述使用者變更執行 reset 或 checkout。
 
-## 進行中
+## CP-010 — 多頁操作中心、執行模式與可稽核語料學習
 
-- CP-010：擴充操作側欄、離線／OpenAI API 模式設定，以及可調閱的自動語料治理流程。
+- 時間：2026-09-13 16:35 +08:00
+- 狀態：已完成
+- 前端工作台：完成查詢中心、資料總覽、語料中心、API 與模型、API 文件五個頁面；左側導覽加入常用分析與只留問句的本機最近查詢。逐次查詢的「沿用預設」不再誤送 `auto`，手機抽屜具備 inert／焦點管理，Plotly 與原生 SVG fallback 均無破圖。
+- 離線／線上模式：新增 `offline`、`online`、`auto` runtime 管理與逐次覆寫；OpenAI API key 只存在伺服器程序記憶體，不寫磁碟、不回傳、不進瀏覽器儲存，並可由介面明確清除。憑證移除或環境 key 輪替會清掉舊 client cache，狀態與錯誤回應不洩漏 key 或 adapter 細節。
+- OpenAI adapter：使用 Responses API Structured Outputs、`store=False`、30 秒 timeout 與單層重試控制；線上 extra 已安裝，並以無效測試 key 驗證 client 初始化後立即清除，沒有向 OpenAI 發出模型請求。
+- 自動語料治理：Web／API 查詢可建立候選；router 候選須通過 benchmark 洩漏、去重、SQL／語意、結果重播與檢索回歸關卡才自動發布，LLM 候選必須人工審核。語料中心可搜尋、篩選、查看完整欄位、事件與審核內容。
+- 資料安全與一致性：候選只保存問句、參數、SQL、驗證與結果 checksum，不保存結果 rows；遞迴去識別化涵蓋電號、身分證、電話、卡號與標記姓名。工作區使用程序鎖、跨程序檔案鎖、原子寫入、版本／checksum manifest；canonical 或資料庫基線變更時自動備份、重建索引並要求既有候選重新驗證。
+- API 與文件：新增 runtime、語料清單、事件、審核及訓練狀態端點；422 驗證錯誤不反射敏感輸入。主工作台提供離線 API 說明，`/openapi.json` 可本機使用；`/docs` 固定 Swagger UI 5.32.15、nonce、精確 SRI 與頁面專用 CSP，且已明示首次載入需要 jsDelivr。
+- 實機驗收：在新版工作台執行「2026年7月20日出力前五名機組」，取得 5 筆、平均 405.92 萬瓩並正常顯示圖表；五個頁面、語料詳細視窗、runtime 狀態與 Swagger UI 均通過，瀏覽器 console 無 CSP／載入錯誤，頁面影像檢查無破圖。
+- 自動驗收：`ruff format --check .`、`ruff check .`、`node --check src/serving/static/app.js`、`pytest -q` 全數通過（111 passed）。Starlette TestClient 仍有一則第三方 AnyIO alias 淘汰警告，不影響測試或執行。
+- 回退方式：回退 `feat: add runtime and corpus control center` 這個 commit；執行期 `.powerquery-learning` 可獨立移除或由其版本備份回復，不影響 canonical corpus；CP-001～009 與使用者原有變更保持不動。
 
 ## CP-009 — Plotly 圖示與畫布樣式修復
 

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
+from pathlib import Path
+from threading import RLock
 from time import perf_counter
 from typing import Any, Protocol
 
@@ -73,7 +75,11 @@ class Text2SQLPipeline:
         self.llm = llm
         self.sql_guard = sql_guard
         self.run_sql = run_sql
-        self.corpus = load_corpus(corpus_path)
+        self.corpus_path = Path(corpus_path)
+        self._ngram_min = ngram_min
+        self._ngram_max = ngram_max
+        self._corpus_lock = RLock()
+        self.corpus = load_corpus(self.corpus_path)
         self.retriever = TfidfRetriever(
             self.corpus["examples"], minimum=ngram_min, maximum=ngram_max
         )
@@ -83,6 +89,21 @@ class Text2SQLPipeline:
         self.semantic_guard = semantic_guard or AllowAllSemanticGuard()
         self.max_attempts = max_attempts
         self.top_k = top_k
+
+    def reload_corpus(self, corpus_path: Path | None = None) -> str:
+        """Atomically replace the retrieval snapshot used by subsequent queries."""
+        next_path = Path(corpus_path) if corpus_path is not None else self.corpus_path
+        corpus = load_corpus(next_path)
+        retriever = TfidfRetriever(
+            corpus["examples"],
+            minimum=self._ngram_min,
+            maximum=self._ngram_max,
+        )
+        with self._corpus_lock:
+            self.corpus_path = next_path
+            self.corpus = corpus
+            self.retriever = retriever
+        return str(corpus["version"])
 
     @staticmethod
     def _trace(trace: list[dict[str, Any]], stage: str, started: float, **details: Any) -> None:
@@ -110,6 +131,9 @@ class Text2SQLPipeline:
 
     def query(self, question: str) -> PipelineResponse:
         trace: list[dict[str, Any]] = []
+        with self._corpus_lock:
+            corpus = self.corpus
+            retriever = self.retriever
         started = perf_counter()
         entities = extract_entities(question)
         self._trace(trace, "entities", started)
@@ -132,7 +156,7 @@ class Text2SQLPipeline:
         retrieved = []
         if not routed.sql:
             started = perf_counter()
-            retrieved = self.retriever.retrieve(question, top_k=self.top_k)
+            retrieved = retriever.retrieve(question, top_k=self.top_k)
             self._trace(
                 trace,
                 "retrieve",
@@ -150,7 +174,7 @@ class Text2SQLPipeline:
                 started = perf_counter()
                 prompt = build_prompt(
                     question,
-                    corpus=self.corpus,
+                    corpus=corpus,
                     examples=retrieved,
                     data_range=self.data_range,
                     prior_error=prior_error,
@@ -208,6 +232,7 @@ class Text2SQLPipeline:
                 data={
                     "question": question,
                     "intent": routed.intent,
+                    "source": source,
                     "sql": generated.sql,
                     "params": list(generated.params),
                     "columns": columns,
