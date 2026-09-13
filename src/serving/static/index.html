@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content">
+  <meta name="description" content="以自然語言安全查詢台電開放資料">
+  <title>PowerQuery TW</title>
+  <link rel="stylesheet" href="/static/app.css">
+  <script src="https://cdn.plot.ly/plotly-basic-4.0.0.min.js"
+          integrity="sha384-pob47bLDprs//iBIQpGg2VYPBbDGMuH6Fyu26Rdf2XvV5y78KBv8pT1xS/5MhP/8"
+          crossorigin="anonymous" defer></script>
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar" tabindex="-1" aria-label="資料與查詢導覽">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">P</span>
+        <div><strong>PowerQuery TW</strong><span>可信任的台電資料查詢</span></div>
+      </div>
+      <div class="connection" role="status"><span class="status-dot" id="statusDot"></span><span id="statusText">正在連線…</span></div>
+      <div class="demo-banner" id="demoBanner" hidden>目前為離線規則模式；長尾問題需設定 OpenAI API key。</div>
+      <section class="side-section" aria-labelledby="coverageTitle">
+        <h2 id="coverageTitle">資料涵蓋</h2>
+        <dl class="stats">
+          <div><dt>尖峰資料</dt><dd id="totalRecords">—</dd></div>
+          <div><dt>機組主檔</dt><dd id="totalUnits">—</dd></div>
+          <div><dt>歲修紀錄</dt><dd id="outageRecords">—</dd></div>
+          <div><dt>日期範圍</dt><dd id="dateRange">—</dd></div>
+        </dl>
+      </section>
+      <section class="side-section" aria-labelledby="examplesTitle">
+        <h2 id="examplesTitle">範例問法</h2>
+        <div class="examples" id="examples"></div>
+      </section>
+      <footer>資料來源：台灣電力公司開放資料</footer>
+    </aside>
+
+    <button class="sidebar-backdrop" id="sidebarBackdrop" aria-label="關閉導覽" hidden></button>
+    <main class="main">
+      <header class="topbar">
+        <button class="nav-toggle" id="navToggle" aria-controls="sidebar" aria-expanded="false"><span class="sr-only">開啟導覽</span>☰</button>
+        <div><h1>用白話問電力資料</h1><p>系統會先確認資料是否足以支持答案</p></div>
+      </header>
+
+      <section class="conversation" id="conversation" aria-label="查詢對話">
+        <article class="welcome-card">
+          <p class="eyebrow">POWERQUERY TW</p>
+          <h2>想知道哪一段電力資料？</h2>
+          <p>可查詢每日尖峰出力、備轉容量、機組設備與歲修。跨日功率加總、資料缺口或歧義名稱會先被守門層攔下或揭露。</p>
+          <div class="welcome-grid">
+            <span>唯讀 SQL</span><span>資料語意守門</span><span>結果可追溯</span>
+          </div>
+        </article>
+      </section>
+
+      <form class="composer" id="queryForm">
+        <label class="sr-only" for="queryInput">輸入電力資料問題</label>
+        <textarea id="queryInput" rows="1" maxlength="500" placeholder="例如：2026 年 7 月備轉容量率最低是哪一天？" required></textarea>
+        <button class="send-button" id="sendButton" type="submit">查詢</button>
+      </form>
+    </main>
+  </div>
+  <div class="sr-only" id="srStatus" role="status" aria-live="polite"></div>
+  <div class="sr-only" id="srAlert" role="alert" aria-live="assertive"></div>
+</body>
+</html>

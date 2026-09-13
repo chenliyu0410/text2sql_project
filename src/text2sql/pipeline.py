@@ -65,6 +65,8 @@ class Text2SQLPipeline:
         semantic_guard: SemanticGuardProtocol | None = None,
         max_attempts: int = 3,
         top_k: int = 5,
+        ngram_min: int = 2,
+        ngram_max: int = 4,
     ):
         if max_attempts < 1:
             raise ValueError("max_attempts 必須至少是 1")
@@ -72,7 +74,9 @@ class Text2SQLPipeline:
         self.sql_guard = sql_guard
         self.run_sql = run_sql
         self.corpus = load_corpus(corpus_path)
-        self.retriever = TfidfRetriever(self.corpus["examples"])
+        self.retriever = TfidfRetriever(
+            self.corpus["examples"], minimum=ngram_min, maximum=ngram_max
+        )
         self.data_range = data_range
         self.peak_columns = peak_columns
         self.plants = plants or set()

@@ -1,7 +1,7 @@
 PYTHON ?= python
 UV ?= uv
 
-.PHONY: setup ingest align db corpus eval ask format-check lint test test-unit test-contract test-integration test-e2e test-all
+.PHONY: setup ingest align db corpus eval ask serve format-check lint test test-unit test-contract test-integration test-e2e test-all
 
 setup:
 	$(UV) sync --extra dev
@@ -24,6 +24,9 @@ eval:
 
 ask:
 	$(UV) run powerquery
+
+serve:
+	$(UV) run powerquery --serve
 
 format-check:
 	$(UV) run ruff format --check .

@@ -51,6 +51,14 @@ class FakeLLM:
             raise RuntimeError("FakeLLM 沒有更多預設輸出。") from error
 
 
+class DisabledLLM:
+    """Explicitly fail long-tail generation when online access is not configured."""
+
+    def generate(self, prompt: str) -> str:
+        del prompt
+        raise RuntimeError("線上 LLM 未啟用；請設定 OPENAI_API_KEY 後重試。")
+
+
 class OpenAILLM:
     def __init__(self, *, model: str | None = None, api_key: str | None = None):
         key = api_key or os.getenv("OPENAI_API_KEY")

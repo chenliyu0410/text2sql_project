@@ -14,7 +14,22 @@
 
 ## 進行中
 
-- CP-008：Phase 7 — FastAPI、CLI、圖表規格與對話式前端。
+- 無。README 與系統規格定義的 Phase 0～7 已完成；線上 LLM 實測仍需有效的 `OPENAI_API_KEY`，不影響離線規則模式與 E2E 驗收。
+
+## CP-008 — Phase 7 API、CLI 與對話式呈現層
+
+- 時間：2026-09-13 14:23 +08:00
+- 狀態：已完成
+- API：完成 FastAPI 應用、延遲載入 runtime、健康／資料統計／語料狀態／範例／查詢端點與 OpenAPI 文件；資料庫未就緒時回 503，輸入格式錯誤回 422，語意拒答維持結構化業務 envelope。
+- CLI：`powerquery` 可直接查詢、輸出完整 `--json`，或以 `--serve` 啟動 Uvicorn；`make serve` 與 `SERVING.md` 收錄可重現操作方式。
+- 呈現：後端只建立 `line`、`bar`、`scatter` 白名單圖表規格，日期／數值、類別／數值與雙數值形狀各自選圖；scalar、空結果、全 NULL 或純文字回傳 `chart_spec: null`。圖表 x/y 直接投影自 SQL rows。
+- 前端：完成繁中對話介面、資料涵蓋側欄、範例問句、階段式進度、可取消查詢、結構化錯誤／限制揭露、KPI、表格、SQL 細節與響應式版面。固定版本 Plotly.js basic bundle提供互動圖表，無法載入 CDN 時退回相同資料的原生 SVG。
+- 安全與無障礙：所有動態內容使用 `textContent` 或 SVG attribute，不拼接不可信 HTML；加入 CSP、`nosniff`、frame deny 與 no-referrer headers；支援雙 live region、`aria-current`、鍵盤焦點、中文輸入法組字、防誤送 Enter、reduced motion 與手機 safe area。
+- 相依版本：FastAPI 0.141.1、Uvicorn 0.52.4、HTTPX2 2.12.0；Plotly.js basic bundle 固定為 4.0.0 並驗證 SHA-384 SRI。
+- 實機驗收：本機 Uvicorn 啟動後，`GET /api/health` 與 `POST /api/query` 均回 200；「2026年6月每日備轉容量率」取得 30 筆，`chart_spec.data[0].x[0]` 與 SQL 第一列日期同為 `2026-06-01`。
+- CLI 驗收：「2026年7月備轉容量率最低是哪一天？」成功回傳 `2026-07-05`、`10.23%`；無 API key 時明確標示離線規則模式，長尾問題不以假模型輸出替代。
+- 自動驗收：`ruff format --check .`、`ruff check .`、`node --check src/serving/static/app.js`、`pytest -q` 全數通過（65 passed）。Starlette 1.6.0 仍從第三方 `testclient.py` 發出一則 AnyIO 型別別名淘汰警告，不影響測試或執行。
+- 回退方式：回退 `feat: deliver api cli and accessible web interface` 這個 commit；CP-001～007 與使用者原有變更保持不動。
 
 ## CP-007 — Phase 6 離線評測與回歸關卡
 
