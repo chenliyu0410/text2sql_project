@@ -14,7 +14,19 @@
 
 ## 進行中
 
-- CP-005：Phase 4 — 實體抽取、別名、意圖路由、RAG、LLM adapter、SQL 安全守門與離線管線。
+- CP-006：Phase 5 — 資料語意守門與三種嚴重度。
+
+## CP-005 — Phase 4 Text2SQL 管線
+
+- 時間：2026-09-13 13:44 +08:00
+- 狀態：已完成
+- 管線：建立實體抽取→問句語意接點→零成本路由→字元 n-gram TF-IDF 檢索→LLM結構化產生→SQL AST 守門→SQL語意接點→唯讀 SQLite 執行的完整編排，並在 trace 保留每步驟耗時。
+- 實體：支援西元日期、民國年、中文／全形數字、去年／今年／上個月／上下半年、燃料與 Top-N；相對日期可注入 reference date 以便重現。
+- 線上／離線：`OpenAILLM` 使用 Responses API 與 JSON Schema Structured Outputs；`FakeLLM` 用於無 key 的離線 CI，線上模式缺 key 時明確報錯，不會假裝成真實模型。
+- 安全：所有路由與 LLM SQL 都經過同一守門；只允許單一 `SELECT`、四個審核 view 與欄位 allowlist，強制參數化字串、`LIMIT <= 200`，禁止註解、多敘述、寫入、系統表與危險函式。SQLite adapter 以 `mode=ro`、`query_only` 與 progress handler 做唯讀及逾時防護。
+- 失敗處理：LLM 輸出、SQL 守門或執行錯誤會帶結構化原因重生，上限 3 次；仍失敗時回傳 `GENERATION_FAILED`，不偷換預設查詢。
+- 驗收：黃金意圖題庫 80/80（100%，要求 ≥ 90%）；攻擊題庫 15/15 全數攔截；`ruff format --check .`、`ruff check .`、`pytest -q` 全數通過（42 passed）。
+- 回退方式：回退 `feat: implement guarded text2sql pipeline` 這個 commit；CP-001～004 與使用者原有變更保持不動。
 
 ## CP-004 — Phase 3 語料與獨立題庫
 
