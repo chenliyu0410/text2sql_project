@@ -34,6 +34,10 @@ from ingest.validate import (
 SCHEMA_VERSION = "1"
 
 
+class DatabasePublishError(PermissionError):
+    """Raised when a completed database cannot replace the published snapshot."""
+
+
 def _text(row: dict[str, str], key: str) -> str:
     return row.get(key, "").strip()
 
@@ -393,7 +397,14 @@ def build_database(
                 ),
             )
             connection.commit()
-        os.replace(temporary_path, target)
+        try:
+            os.replace(temporary_path, target)
+        except PermissionError as exc:
+            raise DatabasePublishError(
+                f"無法更新資料庫 {target}。檔案可能正被 PowerQuery 服務、SQLite "
+                "檢視器或同步程式占用；請先在服務視窗按 Ctrl+C 停止服務，確認目錄可寫，"
+                "再重新執行建庫指令。"
+            ) from exc
     finally:
         temporary_path.unlink(missing_ok=True)
 
@@ -420,7 +431,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output", type=Path, default=paths["database"])
     parser.add_argument("--report", type=Path, default=paths["data_quality_report"])
     args = parser.parse_args(argv)
-    report = build_database(args.output, report_path=args.report)
+    try:
+        report = build_database(args.output, report_path=args.report)
+    except DatabasePublishError as exc:
+        parser.exit(1, f"錯誤：{exc}\n")
     counts = report["table_counts"]
     print(
         f"已建立 {args.output}：{counts['dim_unit']} 機組、"

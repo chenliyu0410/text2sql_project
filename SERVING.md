@@ -15,6 +15,8 @@ make db
 make serve
 ```
 
+Windows 重新建置 `data/processed/power.db` 前，請先在執行服務的視窗按 `Ctrl+C` 停止服務。SQLite 檔案仍被服務、資料庫檢視器或同步程式開啟時，Windows 不允許原子替換；建庫指令會保留原本資料庫、嘗試清理暫存檔，並顯示可操作的錯誤訊息。
+
 也可直接從命令列查詢，或取得完整 JSON envelope：
 
 ```bash

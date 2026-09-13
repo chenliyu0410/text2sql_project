@@ -2,6 +2,18 @@
 
 > 這份檔案在每個可驗證、可回退的儲存點更新。回退前需保留使用者原有的未提交變更。
 
+## CP-012 — Windows 資料庫占用提示與建庫復原
+
+- 時間：2026-09-13 20:27 +08:00
+- 狀態：已完成
+- 現象與根因：Windows 執行 `ingest.build_db` 時，仍在運作的 PowerQuery／SQLite connection 占用 `data/processed/power.db`，使最後的原子 `os.replace` 回傳 WinError 5；前段資料建置本身沒有失敗。
+- 修正：原子發布遇到 `PermissionError` 時改拋相容於既有 `PermissionError`／`OSError` 捕捉邏輯的 `DatabasePublishError`，明確指示先以 `Ctrl+C` 停止服務並確認目錄可寫；CLI 只顯示這段操作訊息與 exit code 1，不再輸出 traceback。
+- 保護：替換失敗時保留既有 `power.db`，並由 `finally` 嘗試移除本次 `.power-*.db` 暫存檔；測試鎖定情境確認舊檔內容未變且一般 target-only lock 不留暫存檔。
+- 文件：`SERVING.md` 已補上 Windows 重建資料庫前必須停止服務的順序與原因。
+- 實機復原：關閉先前預覽服務後重新建庫成功，SQLite `PRAGMA quick_check=ok`；再由 `uv run powerquery --serve` 於 `127.0.0.1:8000` 啟動，`GET /api/health` 回 200。占用狀態重跑建庫則正確保留原資料庫並輸出新提示。
+- 自動驗收：`ruff format --check .`、`ruff check .`、`git diff --check`、`pytest -q` 全數通過（113 passed）；僅保留既有 Starlette 第三方 AnyIO alias 淘汰警告。
+- 回退方式：回退 `fix: explain locked database rebuilds on Windows` 這個 commit；CP-001～011、已發布 Release 與使用者原有變更保持不動。
+
 ## CP-011 — 台電資料 GitHub Release
 
 - 時間：2026-09-13 16:43 +08:00；公開完成：2026-09-13 16:46 +08:00

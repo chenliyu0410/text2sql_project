@@ -5,7 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from ingest.build_db import build_database
+from ingest import build_db as build_db_module
+from ingest.build_db import DatabasePublishError, build_database
 from ingest.validate import PROJECT_ROOT, validate_configured_files
 
 
@@ -74,3 +75,52 @@ def test_rebuild_is_content_idempotent(tmp_path: Path) -> None:
 
     assert first["table_counts"] == second["table_counts"]
     assert first["database_content_checksum"] == second["database_content_checksum"]
+
+
+@pytest.mark.integration
+def test_locked_target_reports_recovery_and_removes_temporary_database(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    target = tmp_path / "power.db"
+    target.write_bytes(b"existing database remains untouched")
+    attempted_sources: list[Path] = []
+
+    def deny_replace(source: str | Path, destination: str | Path) -> None:
+        attempted_sources.append(Path(source))
+        assert Path(destination) == target
+        raise PermissionError(5, "access denied", str(destination))
+
+    monkeypatch.setattr(build_db_module.os, "replace", deny_replace)
+
+    with pytest.raises(DatabasePublishError, match="Ctrl\\+C"):
+        build_database(target, root=PROJECT_ROOT)
+
+    assert target.read_bytes() == b"existing database remains untouched"
+    assert len(attempted_sources) == 1
+    assert not attempted_sources[0].exists()
+
+
+def test_cli_formats_database_publish_error_without_traceback(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    def fail_publish(*_args: object, **_kwargs: object) -> dict[str, object]:
+        raise DatabasePublishError("請先停止服務再重試")
+
+    monkeypatch.setattr(build_db_module, "build_database", fail_publish)
+
+    with pytest.raises(SystemExit) as exit_info:
+        build_db_module.main(
+            [
+                "--output",
+                str(tmp_path / "power.db"),
+                "--report",
+                str(tmp_path / "report.json"),
+            ]
+        )
+
+    assert exit_info.value.code == 1
+    error = capsys.readouterr().err
+    assert error == "錯誤：請先停止服務再重試\n"
+    assert "Traceback" not in error
