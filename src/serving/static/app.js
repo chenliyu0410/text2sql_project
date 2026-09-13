@@ -3,6 +3,7 @@
 
   var HISTORY_KEY = "powerquery.history.v1";
   var HISTORY_LIMIT = 12;
+  var DATA_UPLOAD_MAX_BYTES = 64 * 1024 * 1024;
   var SENSITIVE_HISTORY_PATTERNS = [
     /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i,
     /\b(?:sk|sess|token)-[A-Za-z0-9_-]{8,}\b/i,
@@ -17,7 +18,7 @@
   var PAGE_META = {
     query: ["查詢中心", "安全地把自然語言轉成可追溯資料答案", "queryHeading"],
     overview: ["資料總覽", "掌握資料涵蓋並從常用分析開始", "overviewHeading"],
-    corpus: ["語料中心", "追蹤自動訓練、索引狀態與新增內容", "corpusHeading"],
+    data: ["資料管理", "管理資料檔、人工審核、資料庫版本與完整稽核", "dataHeading"],
     settings: ["API 與模型", "切換離線規則或線上模型服務", "settingsHeading"],
     docs: ["API 文件", "查閱端點、請求格式與回應契約", "docsHeading"]
   };
@@ -38,11 +39,22 @@
   var historyCursor = null;
   var corpusItems = [];
   var corpusEvents = [];
+  var datasetItems = [];
+  var dataChanges = [];
+  var databaseVersions = [];
+  var auditEvents = [];
+  var adminSession = null;
+  var adminSessionRequest = null;
+  var adminCsrfToken = "";
+  var activeManagementTab = "files";
+  var managementRequestActive = false;
   var trainingCandidateCounts = null;
   var trainingTimer = null;
   var sidebarTrapRelease = null;
   var sidebarReturnFocus = null;
   var dialogReturnFocus = null;
+  var datasetDialogReturnFocus = null;
+  var dataChangeDialogReturnFocus = null;
 
   function element(tag, className, text) {
     var node = document.createElement(tag);
@@ -62,6 +74,13 @@
 
   function api(path, options) {
     var requestOptions = Object.assign({ headers: {} }, options || {});
+    requestOptions.credentials = "same-origin";
+    var requestMethod = String(requestOptions.method || "GET").toUpperCase();
+    if (adminCsrfToken && requestMethod !== "GET" && requestMethod !== "HEAD") {
+      requestOptions.headers = Object.assign({}, requestOptions.headers, {
+        "X-PowerQuery-CSRF": adminCsrfToken
+      });
+    }
     if (requestOptions.body != null && typeof requestOptions.body !== "string") {
       requestOptions.body = JSON.stringify(requestOptions.body);
       requestOptions.headers = Object.assign({}, requestOptions.headers, { "Content-Type": "application/json" });
@@ -204,8 +223,19 @@
     setSidebarOpen(false, false);
     workspace.scrollTop = 0;
     if (!options || options.focus !== false) window.setTimeout(function () { byId(meta[2]).focus(); }, 0);
-    if (name === "corpus") refreshCorpus(false);
-    if (name === "settings") loadRuntime(false);
+    if (name === "data") enterDataManagement();
+    if (name === "settings") {
+      if (adminSession) loadRuntime(false);
+      else loadAdminSession().then(function (authenticated) {
+        if (authenticated) loadRuntime(false);
+        else {
+          byId("runtimeSaveStatus").textContent = "需要管理登入";
+          byId("runtimeFeedback").className = "inline-feedback error";
+          byId("runtimeFeedback").textContent = "請先到「資料管理」登入，再調整 API 與模型設定。";
+          byId("runtimeFeedback").hidden = false;
+        }
+      });
+    }
   }
 
   function containsSensitiveText(value) {
@@ -683,20 +713,33 @@
   }
 
   function loadRuntime(announceResult) {
-    return api("/api/runtime/llm").then(function (payload) {
+    if (!adminSession) return Promise.resolve();
+    return adminApi("/api/runtime/llm").then(function (payload) {
       var info = businessData(payload);
       renderRuntime(info);
       loadHealth();
       if (announceResult) announce("執行模式已同步", false);
     }).catch(function (error) {
       renderRuntime({ default_mode: "auto", active_mode: "offline", online_configured: false, provider: "—", model: "—" });
-      byId("runtimeSaveStatus").textContent = "無法讀取";
+      byId("runtimeSaveStatus").textContent = error && (error.status === 401 || error.status === 403) ? "需要管理登入" : "無法讀取";
+      if (error && (error.status === 401 || error.status === 403)) {
+        byId("runtimeFeedback").className = "inline-feedback error";
+        byId("runtimeFeedback").textContent = "管理登入已失效；請先到「資料管理」重新登入。";
+        byId("runtimeFeedback").hidden = false;
+      }
       if (announceResult) announce(error.message, true);
     });
   }
 
   function saveRuntime(event) {
     event.preventDefault();
+    if (!adminSession) {
+      byId("runtimeFeedback").className = "inline-feedback error";
+      byId("runtimeFeedback").textContent = "請先到「資料管理」登入，再套用執行設定。";
+      byId("runtimeFeedback").hidden = false;
+      announce("API 與模型設定需要管理登入", true);
+      return;
+    }
     if (runtimeRequestActive) return;
     var chosen = document.querySelector("input[name='runtimeMode']:checked");
     var keyInput = byId("apiKeyInput");
@@ -736,6 +779,13 @@
   }
 
   function clearRuntimeKey() {
+    if (!adminSession) {
+      byId("runtimeFeedback").className = "inline-feedback error";
+      byId("runtimeFeedback").textContent = "請先到「資料管理」登入，再清除記憶體金鑰。";
+      byId("runtimeFeedback").hidden = false;
+      announce("清除 API key 需要管理登入", true);
+      return;
+    }
     if (runtimeRequestActive) return;
     var button = byId("clearRuntimeKey");
     var save = byId("saveRuntime");
@@ -776,11 +826,881 @@
     });
   }
 
+  function firstArray(value, names) {
+    if (Array.isArray(value)) return value;
+    if (!value || typeof value !== "object") return [];
+    for (var i = 0; i < names.length; i += 1) {
+      if (Array.isArray(value[names[i]])) return value[names[i]];
+      if (value[names[i]] && typeof value[names[i]] === "object") {
+        return Object.keys(value[names[i]]).map(function (key) {
+          var item = value[names[i]][key];
+          return item && typeof item === "object" ? Object.assign({ dataset: key }, item) : { dataset: key, value: item };
+        });
+      }
+    }
+    return [];
+  }
+
+  function adminIdentity(data) {
+    if (!data || typeof data !== "object") return "";
+    if (typeof data.username === "string") return data.username;
+    if (typeof data.user === "string") return data.user;
+    if (data.user && typeof data.user.username === "string") return data.user.username;
+    if (typeof data.actor === "string") return data.actor;
+    return "";
+  }
+
+  function sessionIsAuthenticated(data) {
+    return Boolean(data && (
+      data.authenticated === true ||
+      data.logged_in === true ||
+      data.active === true ||
+      adminIdentity(data)
+    ));
+  }
+
+  function sessionCsrf(data) {
+    if (!data || typeof data !== "object") return "";
+    return String(data.csrf_token || data.csrf || data.csrfToken || "");
+  }
+
+  function lockDataManagement(message, isError) {
+    adminSession = null;
+    adminCsrfToken = "";
+    window.clearTimeout(trainingTimer);
+    var gate = byId("dataAuthGate");
+    var content = byId("dataManagementContent");
+    gate.hidden = false;
+    gate.inert = false;
+    gate.removeAttribute("inert");
+    content.hidden = true;
+    content.inert = true;
+    content.setAttribute("inert", "");
+    byId("refreshDataManagement").hidden = true;
+    byId("adminPassword").value = "";
+    var feedback = byId("dataLoginFeedback");
+    if (message) {
+      feedback.className = "inline-feedback" + (isError === false ? "" : " error");
+      feedback.textContent = message;
+      feedback.hidden = false;
+    } else feedback.hidden = true;
+  }
+
+  function unlockDataManagement(data) {
+    adminSession = data || {};
+    adminCsrfToken = sessionCsrf(adminSession);
+    var gate = byId("dataAuthGate");
+    var content = byId("dataManagementContent");
+    gate.hidden = true;
+    gate.inert = true;
+    gate.setAttribute("inert", "");
+    content.hidden = false;
+    content.inert = false;
+    content.removeAttribute("inert");
+    byId("refreshDataManagement").hidden = false;
+    byId("dataSessionUser").textContent = adminIdentity(adminSession) || "管理員";
+    byId("defaultCredentialWarning").hidden = adminSession.using_default_credentials !== true;
+    byId("dataLoginFeedback").hidden = true;
+  }
+
+  function adminApi(path, options) {
+    return api(path, options).catch(function (error) {
+      if (error && (error.status === 401 || error.status === 403)) {
+        lockDataManagement(error.status === 401 ? "登入已失效，請重新登入。" : "管理驗證已失效，請重新登入。" );
+      }
+      throw error;
+    });
+  }
+
+  function loadAdminSession() {
+    if (adminSessionRequest) return adminSessionRequest;
+    adminSessionRequest = api("/api/admin/session").then(function (payload) {
+      var data = businessData(payload);
+      if (!sessionIsAuthenticated(data)) {
+        lockDataManagement();
+        return false;
+      }
+      unlockDataManagement(data);
+      return true;
+    }).catch(function (error) {
+      if (error && error.status === 401) {
+        lockDataManagement();
+        return false;
+      }
+      lockDataManagement("目前無法確認管理登入狀態：" + error.message);
+      return false;
+    }).finally(function () {
+      adminSessionRequest = null;
+    });
+    return adminSessionRequest;
+  }
+
+  function enterDataManagement() {
+    loadAdminSession().then(function (authenticated) {
+      if (authenticated) refreshDataManagement(false);
+      else window.setTimeout(function () { byId("adminUsername").focus(); }, 0);
+    });
+  }
+
+  function loginAdmin(event) {
+    event.preventDefault();
+    if (managementRequestActive) return;
+    var formElement = byId("dataLoginForm");
+    if (!formElement.reportValidity()) return;
+    var username = byId("adminUsername").value.trim();
+    var passwordInput = byId("adminPassword");
+    var feedback = byId("dataLoginFeedback");
+    var button = byId("dataLoginButton");
+    managementRequestActive = true;
+    button.disabled = true;
+    feedback.hidden = true;
+    api("/api/admin/session", {
+      method: "POST",
+      body: { username: username, password: passwordInput.value }
+    }).then(function (payload) {
+      var data = businessData(payload);
+      if (!sessionIsAuthenticated(data)) throw new Error("登入回應未建立管理工作階段");
+      unlockDataManagement(data);
+      selectManagementTab(activeManagementTab, { focus: false });
+      announce("資料管理登入成功", false);
+      return refreshDataManagement(false);
+    }).catch(function (error) {
+      lockDataManagement("登入失敗：" + error.message);
+      announce("資料管理登入失敗", true);
+      window.setTimeout(function () { byId("adminPassword").focus(); }, 0);
+    }).finally(function () {
+      passwordInput.value = "";
+      passwordInput.type = "password";
+      byId("toggleAdminPassword").textContent = "顯示";
+      byId("toggleAdminPassword").setAttribute("aria-label", "顯示管理密碼");
+      managementRequestActive = false;
+      button.disabled = false;
+    });
+  }
+
+  function logoutAdmin() {
+    if (managementRequestActive) return;
+    managementRequestActive = true;
+    byId("dataLogout").disabled = true;
+    adminMutation("/api/admin/session", { method: "DELETE" }).catch(function (error) {
+      if (error && error.status !== 401) announce("登出請求未完成，但本頁憑證已清除", true);
+    }).finally(function () {
+      lockDataManagement("已登出資料管理。", false);
+      managementRequestActive = false;
+      byId("dataLogout").disabled = false;
+      window.setTimeout(function () { byId("adminUsername").focus(); }, 0);
+    });
+  }
+
+  function selectManagementTab(name, options) {
+    var selected = document.querySelector('[data-management-tab="' + name + '"]');
+    if (!selected) return;
+    activeManagementTab = name;
+    document.querySelectorAll("[data-management-tab]").forEach(function (tab) {
+      var active = tab === selected;
+      tab.setAttribute("aria-selected", active ? "true" : "false");
+      tab.tabIndex = active ? 0 : -1;
+    });
+    document.querySelectorAll("[data-management-panel]").forEach(function (panel) {
+      panel.hidden = panel.getAttribute("data-management-panel") !== name;
+    });
+    if (!options || options.focus !== false) selected.focus();
+  }
+
+  function handleManagementTabKeys(event) {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    var tabs = Array.prototype.slice.call(document.querySelectorAll("[data-management-tab]"));
+    var current = tabs.indexOf(event.target);
+    if (current < 0) return;
+    event.preventDefault();
+    var next = event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 :
+      (current + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
+    selectManagementTab(tabs[next].getAttribute("data-management-tab"));
+  }
+
+  function itemValue(item, names, fallback) {
+    if (!item || typeof item !== "object") return fallback;
+    for (var i = 0; i < names.length; i += 1) {
+      if (item[names[i]] != null && item[names[i]] !== "") return item[names[i]];
+    }
+    return fallback;
+  }
+
+  function datasetIdentifier(item) {
+    return String(itemValue(item, ["dataset", "dataset_id", "slot", "id", "key", "name"], ""));
+  }
+
+  function datasetFilename(item) {
+    return String(itemValue(item, ["filename", "file_name", "display_name", "source_file", "path"], "未提供檔名"));
+  }
+
+  function dataItemState(item) {
+    if (item && item.active === true) return "active";
+    if (item && item.active === false) return "inactive";
+    if (item && item.present === true) return "active";
+    if (item && item.present === false) return "inactive";
+    return String(itemValue(item, ["status", "state", "lifecycle_state", "result"], "active"));
+  }
+
+  function humanFileSize(value) {
+    var size = Number(value);
+    if (!Number.isFinite(size) || size < 0) return "—";
+    if (size < 1024) return size + " B";
+    if (size < 1024 * 1024) return (size / 1024).toFixed(1) + " KB";
+    return (size / (1024 * 1024)).toFixed(1) + " MB";
+  }
+
+  function renderDatasetFiles() {
+    var keyword = byId("datasetSearch").value.trim().toLowerCase();
+    var filter = byId("datasetStateFilter").value;
+    var filtered = datasetItems.filter(function (item) {
+      var bucket = stateBucket(dataItemState(item));
+      return (!keyword || JSON.stringify(item).toLowerCase().indexOf(keyword) >= 0) &&
+        (filter === "all" || bucket === filter);
+    });
+    var holder = byId("datasetFiles");
+    holder.replaceChildren();
+    byId("datasetResultCount").textContent = valueText(filtered.length) + " 份";
+    if (!filtered.length) {
+      holder.appendChild(element("div", "empty-state", datasetItems.length ? "沒有符合條件的資料檔。" : "目前沒有已登錄的資料檔。"));
+      return;
+    }
+    filtered.forEach(function (item) {
+      var index = datasetItems.indexOf(item);
+      var article = element("article", "management-entry dataset-entry");
+      var body = element("div", "management-entry-body");
+      body.appendChild(element("h4", "", datasetIdentifier(item) || datasetFilename(item)));
+      var meta = element("div", "entry-meta");
+      meta.appendChild(element("span", "state-chip " + stateBucket(dataItemState(item)), statusLabel(dataItemState(item))));
+      var version = itemValue(item, ["version", "database_version", "data_version"], null);
+      if (version) meta.appendChild(element("span", "", String(version)));
+      var rows = itemValue(item, ["row_count", "rows", "records"], null);
+      if (rows != null && !Array.isArray(rows)) meta.appendChild(element("span", "", valueText(Number(rows)) + " 列"));
+      body.appendChild(meta);
+      body.appendChild(element("p", "", datasetFilename(item)));
+      article.appendChild(body);
+      var canRemove = stateBucket(dataItemState(item)) === "active" && item.removable !== false;
+      var open = element("button", "entry-open", canRemove ? "查看與停用" : "查看內容");
+      open.type = "button";
+      open.setAttribute("data-dataset-index", String(index));
+      article.appendChild(open);
+      holder.appendChild(article);
+    });
+  }
+
+  function renderDataStatus(data) {
+    datasetItems = firstArray(data, ["datasets", "files", "sources", "items"]);
+    var supported = data.supported_slots || {};
+    var activeVersion = itemValue(data, ["active_database_version", "active_version", "database_version", "version"], null);
+    datasetItems = datasetItems.map(function (item) {
+      return Object.assign({ version: activeVersion }, supported[datasetIdentifier(item)] || {}, item);
+    });
+    var counts = data.counts || data.summary || {};
+    var active = datasetItems.filter(function (item) { return stateBucket(dataItemState(item)) === "active"; }).length;
+    byId("activeDatasetCount").textContent = valueText(itemValue(counts, ["active_datasets", "active_files", "active"], active));
+    byId("activeDatabaseVersion").textContent = valueText(activeVersion || "—");
+    var datasetSelect = byId("datasetName");
+    var selectedDataset = datasetSelect.value;
+    datasetSelect.replaceChildren(element("option", "", "選擇要新增或替換的資料槽"));
+    datasetSelect.firstChild.value = "";
+    Object.keys(supported).forEach(function (identifier) {
+      var option = element("option", "", supported[identifier].filename ? identifier + " · " + supported[identifier].filename : identifier);
+      option.value = identifier;
+      datasetSelect.appendChild(option);
+    });
+    if (Array.prototype.some.call(datasetSelect.options, function (option) { return option.value === selectedDataset; })) datasetSelect.value = selectedDataset;
+    renderDatasetFiles();
+  }
+
+  function loadDataStatus() {
+    return adminApi("/api/data/status").then(function (payload) {
+      renderDataStatus(businessData(payload));
+    }).catch(function (error) {
+      byId("datasetFiles").replaceChildren(element("div", "empty-state", "資料檔讀取失敗：" + error.message));
+      byId("datasetResultCount").textContent = "讀取失敗";
+    });
+  }
+
+  function changeActionLabel(value) {
+    var labels = {
+      upload: "上傳資料檔",
+      add: "新增資料集",
+      replace: "替換資料檔",
+      remove: "停用資料檔",
+      disable: "停用資料檔",
+      rollback: "回退資料庫版本"
+    };
+    return labels[value] || String(value || "資料異動");
+  }
+
+  function renderDataChanges() {
+    var keyword = byId("dataChangeSearch").value.trim().toLowerCase();
+    var filter = byId("dataChangeStateFilter").value;
+    var pending = dataChanges.filter(function (item) { return stateBucket(dataItemState(item)) === "pending"; }).length;
+    byId("pendingChangeCount").textContent = valueText(pending);
+    byId("dataChangesBadge").textContent = valueText(pending);
+    var filtered = dataChanges.filter(function (item) {
+      return (!keyword || JSON.stringify(item).toLowerCase().indexOf(keyword) >= 0) &&
+        (filter === "all" || stateBucket(dataItemState(item)) === filter);
+    });
+    var holder = byId("dataChanges");
+    holder.replaceChildren();
+    byId("dataChangeResultCount").textContent = valueText(filtered.length) + " 筆";
+    if (!filtered.length) {
+      holder.appendChild(element("div", "empty-state", dataChanges.length ? "沒有符合條件的資料異動。" : "目前沒有資料異動。"));
+      return;
+    }
+    filtered.forEach(function (item) {
+      var index = dataChanges.indexOf(item);
+      var article = element("article", "management-entry change-entry");
+      var body = element("div", "management-entry-body");
+      var action = itemValue(item, ["action", "operation", "type", "kind"], "change");
+      body.appendChild(element("h4", "", changeActionLabel(action) + " · " + (datasetIdentifier(item) || "未命名資料集")));
+      var meta = element("div", "entry-meta");
+      meta.appendChild(element("span", "state-chip " + stateBucket(dataItemState(item)), statusLabel(dataItemState(item))));
+      var actor = itemValue(item, ["actor", "created_by", "requested_by", "username"], null);
+      if (actor) meta.appendChild(element("span", "", String(actor)));
+      body.appendChild(meta);
+      body.appendChild(element("p", "", String(itemValue(item, ["request_reason", "reason", "note", "message", "original_filename", "filename"], "尚無異動說明"))));
+      article.appendChild(body);
+      var open = element("button", "entry-open", stateBucket(dataItemState(item)) === "pending" ? "開啟審核" : "查看紀錄");
+      open.type = "button";
+      open.setAttribute("data-change-index", String(index));
+      article.appendChild(open);
+      holder.appendChild(article);
+    });
+  }
+
+  function loadDataChanges() {
+    return adminApi("/api/data/changes?limit=500").then(function (payload) {
+      var data = businessData(payload);
+      dataChanges = firstArray(data, ["changes", "items", "entries"]);
+      renderDataChanges();
+    }).catch(function (error) {
+      dataChanges = [];
+      renderDataChanges();
+      byId("dataChanges").replaceChildren(element("div", "empty-state", "異動紀錄讀取失敗：" + error.message));
+    });
+  }
+
+  function renderDatabaseVersions() {
+    var holder = byId("databaseVersions");
+    holder.replaceChildren();
+    byId("databaseVersionCount").textContent = valueText(databaseVersions.length) + " 版";
+    if (!databaseVersions.length) {
+      holder.appendChild(element("div", "empty-state", "目前沒有可調閱的資料庫版本。"));
+      return;
+    }
+    databaseVersions.forEach(function (item) {
+      var article = element("article", "management-entry version-entry");
+      var body = element("div", "management-entry-body");
+      var version = itemValue(item, ["version", "id", "database_version", "name"], "未命名版本");
+      body.appendChild(element("h4", "", String(version)));
+      var meta = element("div", "entry-meta");
+      var versionState = item.active === true ? "active" : "archived";
+      meta.appendChild(element("span", "state-chip " + stateBucket(versionState), statusLabel(versionState)));
+      var sources = itemValue(item, ["source_count", "dataset_count", "file_count"], null);
+      if (sources != null) meta.appendChild(element("span", "", valueText(Number(sources)) + " 份資料檔"));
+      body.appendChild(meta);
+      var checksum = itemValue(item, ["sha256", "checksum", "database_sha256", "database_checksum"], null);
+      body.appendChild(element("p", "mono-copy", checksum ? "SHA-256 " + checksum : "建立時間 " + formatDate(itemValue(item, ["published_at", "created_at", "at", "timestamp"], null))));
+      article.appendChild(body);
+      if (item.active !== true) {
+        var rollback = element("button", "entry-open", "建立回退異動");
+        rollback.type = "button";
+        rollback.setAttribute("data-version-index", String(databaseVersions.indexOf(item)));
+        article.appendChild(rollback);
+      }
+      holder.appendChild(article);
+    });
+  }
+
+  function loadDatabaseVersions() {
+    return adminApi("/api/data/versions?limit=200").then(function (payload) {
+      var data = businessData(payload);
+      databaseVersions = firstArray(data, ["versions", "items", "entries"]);
+      renderDatabaseVersions();
+    }).catch(function (error) {
+      databaseVersions = [];
+      renderDatabaseVersions();
+      byId("databaseVersions").replaceChildren(element("div", "empty-state", "版本讀取失敗：" + error.message));
+    });
+  }
+
+  function auditResultBucket(item) {
+    var state = String(itemValue(item, ["result", "status", "outcome", "state", "event", "action"], "success")).toLowerCase();
+    if (/pending|staged|validating|待|處理/.test(state)) return "pending";
+    if (/fail|error|reject|denied|失敗|拒絕/.test(state)) return "failed";
+    return "success";
+  }
+
+  function renderAuditEvents() {
+    var keyword = byId("auditSearch").value.trim().toLowerCase();
+    var filter = byId("auditResultFilter").value;
+    var filtered = auditEvents.filter(function (item) {
+      return (!keyword || JSON.stringify(item).toLowerCase().indexOf(keyword) >= 0) &&
+        (filter === "all" || auditResultBucket(item) === filter);
+    });
+    var holder = byId("auditEvents");
+    holder.replaceChildren();
+    byId("auditEventCount").textContent = valueText(filtered.length) + " 筆";
+    if (!filtered.length) {
+      holder.appendChild(element("li", "empty-state", auditEvents.length ? "沒有符合條件的稽核紀錄。" : "目前沒有稽核紀錄。"));
+      return;
+    }
+    filtered.forEach(function (event) {
+      var details = event.details && typeof event.details === "object" ? event.details : {};
+      var item = element("li", "audit-item");
+      var head = element("div", "audit-head");
+      head.appendChild(element("strong", "", eventLabel(itemValue(event, ["event", "action", "type", "kind"], "data_change"))));
+      var resultState = itemValue(event, ["result", "status", "outcome"], null) || (auditResultBucket(event) === "failed" ? "failed" : auditResultBucket(event) === "pending" ? "pending" : "success");
+      head.appendChild(element("span", "state-chip " + stateBucket(resultState), statusLabel(resultState)));
+      item.appendChild(head);
+      var description = itemValue(event, ["message", "description", "reason", "dataset", "target"], null);
+      if (!description) {
+        var detailAction = itemValue(details, ["action", "operation"], null);
+        var detailTarget = itemValue(details, ["slot", "dataset", "active_version", "candidate_version", "change_id"], null);
+        description = [detailAction ? changeActionLabel(detailAction) : null, detailTarget].filter(Boolean).join(" · ") || "資料管理內容已更新";
+      }
+      item.appendChild(element("p", "", String(description)));
+      var meta = element("div", "audit-meta");
+      var actor = itemValue(event, ["actor", "reviewer", "username", "created_by"], null);
+      if (actor) meta.appendChild(element("span", "", "人員：" + actor));
+      meta.appendChild(element("time", "", formatDate(itemValue(event, ["at", "created_at", "timestamp", "updated_at"], null))));
+      var correlation = itemValue(event, ["correlation_id", "request_id", "id", "event_hash"], null);
+      if (correlation) meta.appendChild(element("span", "mono-copy", "ID " + correlation));
+      item.appendChild(meta);
+      holder.appendChild(item);
+    });
+  }
+
+  function loadAuditEvents() {
+    return adminApi("/api/data/events?limit=500").then(function (payload) {
+      var data = businessData(payload);
+      auditEvents = firstArray(data, ["events", "items", "entries"]);
+      renderAuditEvents();
+    }).catch(function (error) {
+      auditEvents = [];
+      renderAuditEvents();
+      byId("auditEvents").replaceChildren(element("li", "empty-state", "稽核紀錄讀取失敗：" + error.message));
+    });
+  }
+
+  function refreshDataManagement(announceResult) {
+    if (!adminSession) return Promise.resolve();
+    var button = byId("refreshDataManagement");
+    button.disabled = true;
+    return Promise.all([
+      loadDataStatus(),
+      loadDataChanges(),
+      loadDatabaseVersions(),
+      loadAuditEvents(),
+      loadCorpus(false),
+      loadTraining(false),
+      loadRuntime(false)
+    ]).then(function () {
+      if (announceResult && adminSession) announce("資料管理狀態已同步", false);
+    }).finally(function () {
+      button.disabled = false;
+    });
+  }
+
+  function adminMutation(path, options) {
+    if (!adminCsrfToken) {
+      return Promise.reject(new Error("管理工作階段缺少 CSRF 驗證，請重新登入。"));
+    }
+    return adminApi(path, options);
+  }
+
+  function fileToBase64(file) {
+    return new Promise(function (resolve, reject) {
+      var reader = new FileReader();
+      reader.addEventListener("load", function () {
+        var result = String(reader.result || "");
+        var marker = result.indexOf(",");
+        if (marker < 0) reject(new Error("無法將 CSV 轉換為上傳內容"));
+        else resolve(result.slice(marker + 1));
+      });
+      reader.addEventListener("error", function () { reject(new Error("無法讀取選取的 CSV 檔案")); });
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function setFormDisabled(formElement, disabled) {
+    formElement.querySelectorAll("input, select, textarea, button").forEach(function (control) {
+      control.disabled = disabled;
+    });
+  }
+
+  function stageDatasetUpload(event) {
+    event.preventDefault();
+    if (managementRequestActive) return;
+    var formElement = byId("datasetUploadForm");
+    if (!formElement.reportValidity()) return;
+    var fileInput = byId("datasetFileInput");
+    var file = fileInput.files && fileInput.files[0];
+    var feedback = byId("datasetUploadFeedback");
+    if (!file || !/\.csv$/i.test(file.name)) {
+      fileInput.setCustomValidity("請選擇 CSV 檔案。" );
+      fileInput.reportValidity();
+      fileInput.setCustomValidity("");
+      return;
+    }
+    if (file.size > DATA_UPLOAD_MAX_BYTES) {
+      fileInput.setCustomValidity("CSV 不可超過 64 MB。" );
+      fileInput.reportValidity();
+      fileInput.setCustomValidity("");
+      return;
+    }
+    managementRequestActive = true;
+    setFormDisabled(formElement, true);
+    byId("datasetUploadProgress").hidden = false;
+    feedback.className = "inline-feedback";
+    feedback.textContent = "正在讀取並上傳 CSV；完成驗證後會進入待審異動。";
+    feedback.hidden = false;
+    fileToBase64(file).then(function (contentBase64) {
+      return adminMutation("/api/data/changes/upload", {
+        method: "POST",
+        body: {
+          dataset: byId("datasetName").value.trim(),
+          filename: file.name,
+          content_base64: contentBase64,
+          reason: byId("datasetChangeReason").value.trim()
+        }
+      });
+    }).then(function (payload) {
+      businessData(payload);
+      formElement.reset();
+      byId("datasetFileName").textContent = "尚未選擇檔案（上限 64 MB）";
+      feedback.className = "inline-feedback";
+      feedback.textContent = "CSV 已上傳並送入待審異動；尚未影響目前查詢資料。";
+      selectManagementTab("changes", { focus: false });
+      announce("資料檔已上傳並送審", false);
+      return refreshDataManagement(false);
+    }).catch(function (error) {
+      feedback.className = "inline-feedback error";
+      feedback.textContent = "CSV 未送審：" + error.message;
+      announce(error.message, true);
+    }).finally(function () {
+      managementRequestActive = false;
+      setFormDisabled(formElement, false);
+      byId("datasetUploadProgress").hidden = true;
+    });
+  }
+
+  function openModal(dialog, closeButtonId) {
+    if (typeof dialog.showModal === "function") dialog.showModal();
+    else dialog.setAttribute("open", "");
+    window.setTimeout(function () { byId(closeButtonId).focus(); }, 0);
+  }
+
+  function closeModal(dialog, returnFocus) {
+    if (typeof dialog.close === "function") dialog.close();
+    else {
+      dialog.removeAttribute("open");
+      if (returnFocus && typeof returnFocus.focus === "function") returnFocus.focus();
+    }
+  }
+
+  function stageDatasetRemove(item, reasonInput, formElement, feedback) {
+    var dataset = datasetIdentifier(item);
+    if (!dataset || !reasonInput.reportValidity() || managementRequestActive) return;
+    managementRequestActive = true;
+    setFormDisabled(formElement, true);
+    feedback.className = "review-feedback";
+    feedback.textContent = "正在建立停用異動…";
+    feedback.hidden = false;
+    adminMutation("/api/data/changes/remove", {
+      method: "POST",
+      body: { dataset: dataset, reason: reasonInput.value.trim() }
+    }).then(function (payload) {
+      businessData(payload);
+      closeDatasetDialog();
+      selectManagementTab("changes", { focus: false });
+      announce("停用要求已送交人工審核", false);
+      return refreshDataManagement(false);
+    }).catch(function (error) {
+      feedback.className = "review-feedback error";
+      feedback.textContent = "停用異動未建立：" + error.message;
+      announce(error.message, true);
+    }).finally(function () {
+      managementRequestActive = false;
+      if (formElement.isConnected) setFormDisabled(formElement, false);
+    });
+  }
+
+  function openDatasetDialog(index, trigger) {
+    var item = datasetItems[index];
+    if (!item) return;
+    datasetDialogReturnFocus = trigger || document.activeElement;
+    var body = byId("datasetDialogBody");
+    body.replaceChildren();
+    var grid = element("dl", "detail-grid");
+    appendDetail(grid, "資料集", datasetIdentifier(item));
+    appendDetail(grid, "檔名", datasetFilename(item));
+    appendDetail(grid, "狀態", statusLabel(dataItemState(item)));
+    appendDetail(grid, "版本", itemValue(item, ["version", "data_version", "database_version"], null));
+    appendDetail(grid, "資料列", itemValue(item, ["row_count", "rows", "records"], null));
+    appendDetail(grid, "檔案大小", humanFileSize(itemValue(item, ["size_bytes", "file_size", "bytes"], NaN)));
+    appendDetail(grid, "啟用時間", formatDate(itemValue(item, ["activated_at", "updated_at", "created_at"], null)));
+    if (grid.childNodes.length) body.appendChild(grid);
+    var checksum = itemValue(item, ["sha256", "checksum", "file_checksum"], null);
+    if (checksum) {
+      var checksumSection = element("section", "dialog-section");
+      checksumSection.appendChild(element("h3", "", "SHA-256"));
+      checksumSection.appendChild(element("p", "mono-copy", String(checksum)));
+      body.appendChild(checksumSection);
+    }
+    if (item.present !== false && datasetIdentifier(item)) {
+      var downloadSection = element("section", "dialog-section");
+      var download = element("a", "source-file-download", "下載這個版本的 CSV");
+      download.href = "/api/data/files/" + encodeURIComponent(datasetIdentifier(item)) + (item.version ? "?version=" + encodeURIComponent(item.version) : "");
+      download.setAttribute("download", "");
+      downloadSection.appendChild(download);
+      body.appendChild(downloadSection);
+    }
+    var tables = firstArray(item, ["tables", "views", "targets"]);
+    if (tables.length) {
+      var tableSection = element("section", "dialog-section");
+      tableSection.appendChild(element("h3", "", "匯入資料表／檢視"));
+      tableSection.appendChild(element("p", "", tables.map(function (value) {
+        return typeof value === "object" ? itemValue(value, ["name", "table", "view"], JSON.stringify(value)) : value;
+      }).join("、")));
+      body.appendChild(tableSection);
+    }
+    if (stateBucket(dataItemState(item)) === "active" && item.removable !== false) {
+      var section = element("section", "dialog-section destructive-section");
+      section.setAttribute("aria-labelledby", "datasetRemoveTitle");
+      var title = element("h3", "", "建立停用異動");
+      title.id = "datasetRemoveTitle";
+      section.appendChild(title);
+      section.appendChild(element("p", "", "資料不會立即移除；必須在待審異動中由管理員核准，才會建立並切換新版資料庫。"));
+      var removeForm = element("form", "review-form");
+      var label = element("label", "review-field");
+      label.appendChild(element("span", "", "停用原因"));
+      var reason = element("textarea");
+      reason.name = "reason";
+      reason.rows = 3;
+      reason.maxLength = 500;
+      reason.required = true;
+      reason.placeholder = "說明為何停用這份資料檔";
+      label.appendChild(reason);
+      removeForm.appendChild(label);
+      var feedback = element("div", "review-feedback");
+      feedback.hidden = true;
+      feedback.setAttribute("role", "status");
+      removeForm.appendChild(feedback);
+      var actions = element("div", "review-actions");
+      var remove = element("button", "review-button reject", "送出停用審核");
+      remove.type = "submit";
+      actions.appendChild(remove);
+      removeForm.appendChild(actions);
+      removeForm.addEventListener("submit", function (event) {
+        event.preventDefault();
+        stageDatasetRemove(item, reason, removeForm, feedback);
+      });
+      section.appendChild(removeForm);
+      body.appendChild(section);
+    }
+    var raw = element("details", "dialog-section");
+    raw.appendChild(element("summary", "", "查看完整資料檔欄位"));
+    raw.appendChild(element("pre", "", JSON.stringify(item, null, 2)));
+    body.appendChild(raw);
+    openModal(byId("datasetDialog"), "closeDatasetDialog");
+  }
+
+  function closeDatasetDialog() {
+    closeModal(byId("datasetDialog"), datasetDialogReturnFocus);
+  }
+
+  function reviewDataChange(item, decision, noteInput, formElement, feedback) {
+    var identifier = String(itemValue(item, ["id", "change_id", "request_id"], ""));
+    if (!identifier || managementRequestActive || !noteInput.reportValidity()) return;
+    managementRequestActive = true;
+    setFormDisabled(formElement, true);
+    feedback.className = "review-feedback";
+    feedback.textContent = decision === "approve" ? "正在驗證、建立並切換新版資料庫…" : "正在拒絕資料異動…";
+    feedback.hidden = false;
+    adminMutation("/api/data/changes/" + encodeURIComponent(identifier) + "/review", {
+      method: "POST",
+      body: { decision: decision, note: noteInput.value.trim() }
+    }).then(function (payload) {
+      businessData(payload);
+      closeDataChangeDialog();
+      announce(decision === "approve" ? "資料異動已核准並套用" : "資料異動已拒絕", false);
+      loadHealth();
+      loadStats(false);
+      return refreshDataManagement(false);
+    }).catch(function (error) {
+      feedback.className = "review-feedback error";
+      feedback.textContent = "資料異動審核未完成：" + error.message;
+      announce(error.message, true);
+    }).finally(function () {
+      managementRequestActive = false;
+      if (formElement.isConnected) setFormDisabled(formElement, false);
+    });
+  }
+
+  function openDataChangeDialog(index, trigger) {
+    var item = dataChanges[index];
+    if (!item) return;
+    dataChangeDialogReturnFocus = trigger || document.activeElement;
+    byId("dataChangeDialogTitle").textContent = "資料異動審查";
+    var body = byId("dataChangeDialogBody");
+    body.replaceChildren();
+    var grid = element("dl", "detail-grid");
+    appendDetail(grid, "異動編號", itemValue(item, ["id", "change_id", "request_id"], null));
+    appendDetail(grid, "動作", changeActionLabel(itemValue(item, ["action", "operation", "type", "kind"], null)));
+    appendDetail(grid, "資料集", datasetIdentifier(item));
+    appendDetail(grid, "檔名", itemValue(item, ["original_filename", "filename", "file_name"], null));
+    appendDetail(grid, "基礎版本", item.base_version);
+    appendDetail(grid, "候選版本", item.candidate_version);
+    appendDetail(grid, "候選 DB checksum", item.database_sha256);
+    appendDetail(grid, "狀態", statusLabel(dataItemState(item)));
+    appendDetail(grid, "提出人", itemValue(item, ["actor", "created_by", "requested_by"], null));
+    appendDetail(grid, "建立時間", formatDate(itemValue(item, ["created_at", "at", "timestamp"], null)));
+    appendDetail(grid, "資料列", itemValue(item, ["row_count", "rows", "records"], null));
+    if (grid.childNodes.length) body.appendChild(grid);
+    var reasonSection = element("section", "dialog-section");
+    reasonSection.appendChild(element("h3", "", "異動原因"));
+    reasonSection.appendChild(element("p", "", String(itemValue(item, ["request_reason", "reason", "note", "description"], "未提供"))));
+    body.appendChild(reasonSection);
+    var validation = itemValue(item, ["build_report", "validation", "checks", "preview", "diff"], null);
+    if (validation) {
+      var validationSection = element("details", "dialog-section validation-section");
+      validationSection.open = true;
+      validationSection.appendChild(element("summary", "", "驗證結果與差異預覽"));
+      validationSection.appendChild(element("pre", "", JSON.stringify(validation, null, 2)));
+      body.appendChild(validationSection);
+    }
+    if (stateBucket(dataItemState(item)) === "pending") {
+      var reviewSection = element("section", "dialog-section review-section");
+      reviewSection.setAttribute("aria-labelledby", "dataChangeReviewTitle");
+      var title = element("h3", "", "人工審核");
+      title.id = "dataChangeReviewTitle";
+      reviewSection.appendChild(title);
+      reviewSection.appendChild(element("p", "", "核准後才會建立並切換資料庫版本；審核人員取自目前登入帳號。"));
+      var reviewForm = element("form", "review-form");
+      var label = element("label", "review-field");
+      label.appendChild(element("span", "", "審核說明"));
+      var note = element("textarea");
+      note.name = "note";
+      note.rows = 3;
+      note.maxLength = 500;
+      note.required = true;
+      note.placeholder = "記錄核准或拒絕的判斷依據";
+      label.appendChild(note);
+      reviewForm.appendChild(label);
+      var feedback = element("div", "review-feedback");
+      feedback.hidden = true;
+      feedback.setAttribute("role", "status");
+      reviewForm.appendChild(feedback);
+      var actions = element("div", "review-actions");
+      var reject = element("button", "review-button reject", "拒絕異動");
+      reject.type = "button";
+      reject.addEventListener("click", function () { reviewDataChange(item, "reject", note, reviewForm, feedback); });
+      var approve = element("button", "review-button", "核准並套用");
+      approve.type = "button";
+      approve.addEventListener("click", function () { reviewDataChange(item, "approve", note, reviewForm, feedback); });
+      actions.appendChild(reject);
+      actions.appendChild(approve);
+      reviewForm.appendChild(actions);
+      reviewForm.addEventListener("submit", function (event) { event.preventDefault(); });
+      reviewSection.appendChild(reviewForm);
+      body.appendChild(reviewSection);
+    }
+    var raw = element("details", "dialog-section");
+    raw.appendChild(element("summary", "", "查看完整異動欄位"));
+    raw.appendChild(element("pre", "", JSON.stringify(item, null, 2)));
+    body.appendChild(raw);
+    openModal(byId("dataChangeDialog"), "closeDataChangeDialog");
+  }
+
+  function closeDataChangeDialog() {
+    closeModal(byId("dataChangeDialog"), dataChangeDialogReturnFocus);
+  }
+
+  function stageVersionRollback(item, reasonInput, formElement, feedback) {
+    var version = String(itemValue(item, ["version", "id", "database_version"], ""));
+    if (!version || managementRequestActive || !reasonInput.reportValidity()) return;
+    managementRequestActive = true;
+    setFormDisabled(formElement, true);
+    feedback.className = "review-feedback";
+    feedback.textContent = "正在建立回退異動；目前作用中版本不會立即改變…";
+    feedback.hidden = false;
+    adminMutation("/api/data/versions/" + encodeURIComponent(version) + "/rollback", {
+      method: "POST",
+      body: { reason: reasonInput.value.trim() }
+    }).then(function (payload) {
+      businessData(payload);
+      closeDataChangeDialog();
+      selectManagementTab("changes", { focus: false });
+      announce("回退要求已送交人工審核", false);
+      return refreshDataManagement(false);
+    }).catch(function (error) {
+      feedback.className = "review-feedback error";
+      feedback.textContent = "回退異動未建立：" + error.message;
+      announce(error.message, true);
+    }).finally(function () {
+      managementRequestActive = false;
+      if (formElement.isConnected) setFormDisabled(formElement, false);
+    });
+  }
+
+  function openVersionRollbackDialog(index, trigger) {
+    var item = databaseVersions[index];
+    if (!item || item.active === true) return;
+    dataChangeDialogReturnFocus = trigger || document.activeElement;
+    byId("dataChangeDialogTitle").textContent = "建立回退異動";
+    var body = byId("dataChangeDialogBody");
+    body.replaceChildren();
+    var version = String(itemValue(item, ["version", "id", "database_version"], ""));
+    var grid = element("dl", "detail-grid");
+    appendDetail(grid, "目標版本", version);
+    appendDetail(grid, "建立時間", formatDate(itemValue(item, ["published_at", "created_at", "at"], null)));
+    appendDetail(grid, "發布人員", itemValue(item, ["published_by", "actor", "created_by"], null));
+    appendDetail(grid, "DB checksum", itemValue(item, ["database_sha256", "sha256", "checksum"], null));
+    if (grid.childNodes.length) body.appendChild(grid);
+    var section = element("section", "dialog-section review-section");
+    section.setAttribute("aria-labelledby", "rollbackReviewTitle");
+    var title = element("h3", "", "送出回退申請");
+    title.id = "rollbackReviewTitle";
+    section.appendChild(title);
+    section.appendChild(element("p", "", "回退只會建立待審異動，不會立即切換資料庫；人工核准後才正式套用。"));
+    var formElement = element("form", "review-form");
+    var label = element("label", "review-field");
+    label.appendChild(element("span", "", "回退原因"));
+    var reason = element("textarea");
+    reason.name = "reason";
+    reason.rows = 3;
+    reason.maxLength = 500;
+    reason.required = true;
+    reason.placeholder = "說明需要回到這個版本的原因";
+    label.appendChild(reason);
+    formElement.appendChild(label);
+    var feedback = element("div", "review-feedback");
+    feedback.hidden = true;
+    feedback.setAttribute("role", "status");
+    formElement.appendChild(feedback);
+    var actions = element("div", "review-actions");
+    var submit = element("button", "review-button", "建立回退異動");
+    submit.type = "submit";
+    actions.appendChild(submit);
+    formElement.appendChild(actions);
+    formElement.addEventListener("submit", function (event) {
+      event.preventDefault();
+      stageVersionRollback(item, reason, formElement, feedback);
+    });
+    section.appendChild(formElement);
+    body.appendChild(section);
+    openModal(byId("dataChangeDialog"), "closeDataChangeDialog");
+  }
+
   function stateBucket(value) {
     var state = String(value || "").toLowerCase();
     if (/validating|pending|queue|train|review|draft|待|訓練|審核|排程|新增/.test(state)) return "pending";
     if (/ignored|inactive|disabled|reject|error|fail|停用|拒絕|失敗|忽略/.test(state)) return "inactive";
-    if (/promoted|active|enabled|approved|ready|trained|publish|啟用|核准|就緒|完成/.test(state)) return "active";
+    if (/promoted|active|enabled|approved|applied|success|ready|trained|publish|啟用|核准|套用|成功|就緒|完成/.test(state)) return "active";
     return "unknown";
   }
 
@@ -788,8 +1708,18 @@
     var labels = {
       validating: "驗證中",
       pending_review: "待人工審核",
+      pending: "待處理",
+      staged: "已送審",
       promoted: "已提升發布",
+      approved: "已核准",
+      applied: "已套用",
+      active: "已啟用",
+      archived: "歷史版本",
+      success: "成功",
       rejected: "已拒絕",
+      failed: "失敗",
+      inactive: "已停用",
+      removed: "已停用",
       ignored: "已忽略",
       error: "處理失敗"
     };
@@ -804,7 +1734,21 @@
       candidate_promoted: "候選已發布至語料",
       candidate_rejected: "候選未通過驗證",
       candidate_ignored: "已忽略重複候選",
-      learning_error: "學習流程發生錯誤"
+      learning_error: "學習流程發生錯誤",
+      data_change_staged: "資料異動已送審",
+      data_change_approved: "資料異動已核准",
+      data_change_rejected: "資料異動已拒絕",
+      data_version_activated: "資料庫版本已切換",
+      dataset_uploaded: "資料檔已上傳",
+      dataset_removed: "資料檔已停用",
+      change_staged: "資料異動已送審",
+      change_approved: "資料異動已核准",
+      change_rejected: "資料異動已拒絕",
+      change_build_failed: "候選資料庫建置失敗",
+      change_publish_failed: "資料庫版本切換失敗",
+      change_conflict: "資料異動版本衝突",
+      login: "管理員登入",
+      logout: "管理員登出"
     };
     return labels[value] || String(value || "語料異動");
   }
@@ -819,6 +1763,12 @@
 
   function entryDescription(item) {
     return item.description || item.answer || item.explanation || item.sql || item.notes || "尚無補充說明";
+  }
+
+  function corpusDataSources(item) {
+    var direct = firstArray(item, ["data_sources", "source_files", "datasets", "files"]);
+    if (direct.length) return direct;
+    return firstArray(item && (item.data_provenance || item.provenance), ["data_sources", "source_files", "datasets", "files"]);
   }
 
   function renderCorpusList() {
@@ -847,6 +1797,12 @@
       meta.appendChild(status);
       if (item.intent || item.category) meta.appendChild(element("span", "", item.intent || item.category));
       if (item.source) meta.appendChild(element("span", "", item.source));
+      var sources = corpusDataSources(item);
+      if (sources.length) {
+        var firstSource = sources[0];
+        var sourceName = typeof firstSource === "object" ? datasetFilename(firstSource) : String(firstSource);
+        meta.appendChild(element("span", "", "資料：" + sourceName + (sources.length > 1 ? " 等 " + sources.length + " 份" : "")));
+      }
       body.appendChild(meta);
       article.appendChild(body);
       var open = element("button", "entry-open", "查看內容");
@@ -891,19 +1847,20 @@
     byId("corpusTotal").textContent = valueText(countValue(counts, ["total", "all", "entry_count"], corpusItems.length));
     byId("corpusActive").textContent = valueText(countValue(counts, ["promoted", "active", "enabled", "approved", "ready"], activeCount));
     var exactPending = counts.validating != null || counts.pending_review != null ? Number(counts.validating || 0) + Number(counts.pending_review || 0) : null;
-    byId("corpusPending").textContent = valueText(exactPending != null ? exactPending : countValue(counts, ["pending", "queued", "training", "review"], pendingCount));
+    var pendingTotal = exactPending != null ? exactPending : countValue(counts, ["pending", "queued", "training", "review"], pendingCount);
+    byId("corpusPending").textContent = valueText(pendingTotal);
+    byId("pendingCorpusCount").textContent = valueText(pendingTotal);
+    byId("corpusPendingBadge").textContent = valueText(pendingTotal);
     byId("corpusEventCount").textContent = valueText(countValue(counts, ["events", "event_count", "changes"], corpusEvents.length));
     renderCorpusList();
     renderCorpusEvents();
   }
 
   function loadCorpus(announceResult) {
-    var refresh = byId("refreshCorpus");
-    refresh.disabled = true;
-    var eventsRequest = api("/api/corpus/events?limit=100").catch(function () {
+    var eventsRequest = adminApi("/api/corpus/events?limit=100").catch(function () {
       return { success: true, data: { events: [], returned: 0 } };
     });
-    return Promise.all([api("/api/corpus/entries?state=all"), eventsRequest]).then(function (payloads) {
+    return Promise.all([adminApi("/api/corpus/entries?state=all&limit=500"), eventsRequest]).then(function (payloads) {
       var entryData = businessData(payloads[0]);
       var eventData = businessData(payloads[1]);
       renderCorpus(Object.assign({}, entryData, { events: eventData.events || [] }));
@@ -915,7 +1872,7 @@
       holder.replaceChildren(element("div", "empty-state", "目前無法讀取語料內容：" + error.message));
       byId("corpusResultCount").textContent = "讀取失敗";
       if (announceResult) announce(error.message, true);
-    }).finally(function () { refresh.disabled = false; });
+    });
   }
 
   function renderTraining(payload) {
@@ -935,16 +1892,15 @@
     trainingCandidateCounts = counts;
     var pending = Number(counts.validating || 0) + Number(counts.pending_review || 0);
     byId("trainingPending").textContent = valueText(pending);
+    byId("pendingCorpusCount").textContent = valueText(pending);
+    byId("corpusPendingBadge").textContent = valueText(pending);
     byId("trainingUpdated").textContent = valueText(data.corpus_version);
     if (counts.total != null) {
       byId("corpusTotal").textContent = valueText(counts.total);
       byId("corpusActive").textContent = valueText(counts.promoted || 0);
       byId("corpusPending").textContent = valueText(pending);
     }
-    var policy = data.policy || {};
-    var policyParts = [];
-    if (policy.auto_promote_source) policyParts.push("「" + policy.auto_promote_source + "」來源通過驗證後自動發布");
-    if (policy.llm_requires_review) policyParts.push("LLM 產生內容需人工審核");
+    var policyParts = ["所有新語料（包含離線規則與 LLM 來源）均需人工核准後才發布"];
     policyParts.push(hasDetailedStatus ? (data.index_synchronized ? "索引已同步" : "索引待同步") : (isComplete ? "索引已同步" : "詳細狀態需更新後端服務"));
     if (data.latest_event && data.latest_event.event) policyParts.push("最近事件：" + eventLabel(data.latest_event.event) + (data.latest_event.at ? "（" + formatDate(data.latest_event.at) + "）" : ""));
     byId("trainingPolicy").textContent = policyParts.join("；") + "。";
@@ -967,7 +1923,7 @@
 
   function loadTraining(announceResult) {
     window.clearTimeout(trainingTimer);
-    return api("/api/training-status").then(function (payload) {
+    return adminApi("/api/training-status").then(function (payload) {
       renderTraining(payload);
       if (announceResult) announce("訓練狀態已更新", false);
     }).catch(function (error) {
@@ -975,10 +1931,6 @@
       byId("trainingStatus").textContent = "狀態讀取失敗";
       if (announceResult) announce(error.message, true);
     });
-  }
-
-  function refreshCorpus(announceResult) {
-    return Promise.all([loadCorpus(announceResult), loadTraining(false)]);
   }
 
   function appendDetail(grid, label, value) {
@@ -989,30 +1941,24 @@
     grid.appendChild(row);
   }
 
-  function reviewCorpusEntry(item, decision, reviewerInput, formElement, feedback) {
+  function reviewCorpusEntry(item, decision, noteInput, formElement, feedback) {
     var candidateId = item.id || item.entry_id;
     if (!candidateId || ["approve", "reject"].indexOf(decision) < 0) return;
-    if (!reviewerInput.reportValidity()) return;
-    var reviewer = reviewerInput.value.trim();
-    if (!reviewer) {
-      reviewerInput.setCustomValidity("請填寫審核人員名稱。");
-      reviewerInput.reportValidity();
-      reviewerInput.setCustomValidity("");
-      return;
-    }
+    if (!noteInput.reportValidity() || managementRequestActive) return;
     var buttons = formElement.querySelectorAll("button");
+    managementRequestActive = true;
     buttons.forEach(function (button) { button.disabled = true; });
     feedback.className = "review-feedback";
     feedback.textContent = decision === "approve" ? "正在核准並重新驗證候選…" : "正在拒絕候選…";
     feedback.hidden = false;
-    api("/api/corpus/entries/" + encodeURIComponent(candidateId) + "/review", {
+    adminMutation("/api/corpus/entries/" + encodeURIComponent(candidateId) + "/review", {
       method: "POST",
-      body: { decision: decision, reviewer: reviewer }
+      body: { decision: decision, note: noteInput.value.trim() }
     }).then(function (payload) {
       businessData(payload);
-      reviewerInput.value = "";
+      noteInput.value = "";
       closeCorpusDialog();
-      return refreshCorpus(false);
+      return refreshDataManagement(false);
     }).then(function () {
       announce(decision === "approve" ? "候選已核准，語料與索引狀態已更新" : "候選已拒絕，語料狀態已更新", false);
     }).catch(function (error) {
@@ -1021,6 +1967,7 @@
       feedback.hidden = false;
       announce(error.message, true);
     }).finally(function () {
+      managementRequestActive = false;
       if (formElement.isConnected) buttons.forEach(function (button) { button.disabled = false; });
     });
   }
@@ -1032,21 +1979,18 @@
     var title = element("h3", "", "人工審核");
     title.id = "corpusReviewTitle";
     section.appendChild(title);
-    section.appendChild(element("p", "", "這筆 LLM 候選需由人員確認。核准時會重新執行安全、語意與回歸檢查，通過後才發布。"));
+    section.appendChild(element("p", "", "所有來源的候選都需由登入人員確認。核准時會重新執行安全、語意與回歸檢查，通過後才發布。"));
     var reviewForm = element("form", "review-form");
     var label = element("label", "review-field");
-    label.appendChild(element("span", "", "審核人員"));
-    var reviewerInput = element("input");
-    reviewerInput.type = "text";
-    reviewerInput.name = "reviewer";
-    reviewerInput.required = true;
-    reviewerInput.maxLength = 80;
-    reviewerInput.autocomplete = "off";
-    reviewerInput.placeholder = "輸入本機審核人員名稱";
-    reviewerInput.setAttribute("aria-describedby", "reviewerPrivacyNote");
-    label.appendChild(reviewerInput);
-    var privacy = element("small", "", "名稱只送往本機審核端點，不會保存在瀏覽器。");
-    privacy.id = "reviewerPrivacyNote";
+    label.appendChild(element("span", "", "審核說明"));
+    var noteInput = element("textarea");
+    noteInput.name = "note";
+    noteInput.required = true;
+    noteInput.maxLength = 500;
+    noteInput.rows = 3;
+    noteInput.placeholder = "記錄核准或拒絕的判斷依據";
+    label.appendChild(noteInput);
+    var privacy = element("small", "", "審核人員將記錄為目前登入帳號：" + (adminIdentity(adminSession) || "管理員"));
     label.appendChild(privacy);
     reviewForm.appendChild(label);
     var feedback = element("div", "review-feedback");
@@ -1056,10 +2000,10 @@
     var actions = element("div", "review-actions");
     var reject = element("button", "review-button reject", "拒絕候選");
     reject.type = "button";
-    reject.addEventListener("click", function () { reviewCorpusEntry(item, "reject", reviewerInput, reviewForm, feedback); });
+    reject.addEventListener("click", function () { reviewCorpusEntry(item, "reject", noteInput, reviewForm, feedback); });
     var approve = element("button", "review-button", "核准並發布");
     approve.type = "button";
-    approve.addEventListener("click", function () { reviewCorpusEntry(item, "approve", reviewerInput, reviewForm, feedback); });
+    approve.addEventListener("click", function () { reviewCorpusEntry(item, "approve", noteInput, reviewForm, feedback); });
     actions.appendChild(reject);
     actions.appendChild(approve);
     reviewForm.appendChild(actions);
@@ -1078,10 +2022,51 @@
     appendDetail(grid, "識別碼", item.id || item.entry_id || item.key);
     appendDetail(grid, "狀態", entryState(item));
     appendDetail(grid, "意圖／分類", item.intent || item.category);
-    appendDetail(grid, "來源", item.source);
+    appendDetail(grid, "產生來源", item.source);
+    appendDetail(grid, "查詢資料表／檢視", Array.isArray(item.tables) ? item.tables.join("、") : item.tables);
+    appendDetail(grid, "資料庫版本", item.database_version || (item.data_provenance && item.data_provenance.database_version) || item.data_manifest_version);
+    appendDetail(grid, "結果列數", item.result_row_count || item.row_count);
+    appendDetail(grid, "結果 checksum", item.result_checksum);
     appendDetail(grid, "建立時間", formatDate(item.created_at));
     appendDetail(grid, "更新時間", formatDate(item.updated_at || item.trained_at));
     if (grid.childNodes.length) body.appendChild(grid);
+    var sources = corpusDataSources(item);
+    var sourceSection = element("section", "dialog-section source-section");
+    sourceSection.appendChild(element("h3", "", "查詢所使用的資料檔"));
+    if (!sources.length) {
+      sourceSection.appendChild(element("p", "", "這筆舊語料尚未記錄來源資料檔；可依資料庫版本與 SQL 追溯。"));
+    } else {
+      var sourceList = element("div", "source-file-list");
+      sources.forEach(function (source) {
+        var sourceItem = typeof source === "object" ? source : { dataset: source, filename: source };
+        var sourceRow = element("div", "source-file-row");
+        var button = element("button", "source-file-link");
+        button.type = "button";
+        button.setAttribute("data-source-dataset", datasetIdentifier(sourceItem) || datasetFilename(sourceItem));
+        button.title = "前往目前作用中的同一資料槽；候選使用的歷史版本請由右側連結下載。";
+        button.appendChild(element("strong", "", datasetFilename(sourceItem)));
+        var detailParts = [datasetIdentifier(sourceItem)];
+        var sourceVersion = itemValue(sourceItem, ["version", "data_version", "database_version"], null);
+        if (sourceVersion) detailParts.push(String(sourceVersion));
+        var sourceViews = firstArray(sourceItem, ["views", "tables"]);
+        if (sourceViews.length) detailParts.push(sourceViews.map(String).join("、"));
+        var sourceChecksum = itemValue(sourceItem, ["sha256", "checksum"], null);
+        if (sourceChecksum) detailParts.push("SHA-256 " + String(sourceChecksum).slice(0, 12) + "…");
+        button.appendChild(element("small", "", detailParts.filter(Boolean).join(" · ") || "查看資料檔"));
+        sourceRow.appendChild(button);
+        var sourceDataset = datasetIdentifier(sourceItem);
+        if (sourceDataset && sourceItem.present !== false) {
+          var download = element("a", "source-file-download", "下載該版本 CSV");
+          var version = itemValue(sourceItem, ["version", "data_version", "database_version"], null);
+          download.href = "/api/data/files/" + encodeURIComponent(sourceDataset) + (version ? "?version=" + encodeURIComponent(version) : "");
+          download.setAttribute("download", "");
+          sourceRow.appendChild(download);
+        }
+        sourceList.appendChild(sourceRow);
+      });
+      sourceSection.appendChild(sourceList);
+    }
+    body.appendChild(sourceSection);
     var questionSection = element("section", "dialog-section");
     questionSection.appendChild(element("h3", "", "問句／內容"));
     questionSection.appendChild(element("p", "", entryQuestion(item)));
@@ -1146,6 +2131,21 @@
     if (questionButton && !questionButton.disabled) { submitQuestion(questionButton.getAttribute("data-question")); return; }
     var corpusButton = event.target.closest("[data-corpus-index]");
     if (corpusButton) openCorpusDialog(Number(corpusButton.getAttribute("data-corpus-index")), corpusButton);
+    var datasetButton = event.target.closest("[data-dataset-index]");
+    if (datasetButton) openDatasetDialog(Number(datasetButton.getAttribute("data-dataset-index")), datasetButton);
+    var changeButton = event.target.closest("[data-change-index]");
+    if (changeButton) openDataChangeDialog(Number(changeButton.getAttribute("data-change-index")), changeButton);
+    var versionButton = event.target.closest("[data-version-index]");
+    if (versionButton) openVersionRollbackDialog(Number(versionButton.getAttribute("data-version-index")), versionButton);
+    var sourceButton = event.target.closest("[data-source-dataset]");
+    if (sourceButton) {
+      var dataset = sourceButton.getAttribute("data-source-dataset");
+      closeCorpusDialog();
+      selectManagementTab("files", { focus: false });
+      byId("datasetSearch").value = dataset;
+      renderDatasetFiles();
+      window.setTimeout(function () { byId("datasetSearch").focus(); }, 0);
+    }
   });
 
   byId("navToggle").addEventListener("click", function () { setSidebarOpen(!byId("sidebar").classList.contains("open")); });
@@ -1154,7 +2154,31 @@
   byId("modeShortcut").addEventListener("click", function () { showView("settings"); });
   byId("clearHistory").addEventListener("click", clearHistory);
   byId("refreshOverview").addEventListener("click", function () { loadStats(true); });
-  byId("refreshCorpus").addEventListener("click", function () { refreshCorpus(true); });
+  byId("refreshDataManagement").addEventListener("click", function () { refreshDataManagement(true); });
+  byId("dataLoginForm").addEventListener("submit", loginAdmin);
+  byId("dataLogout").addEventListener("click", logoutAdmin);
+  byId("toggleAdminPassword").addEventListener("click", function () {
+    var password = byId("adminPassword");
+    var show = password.type === "password";
+    password.type = show ? "text" : "password";
+    this.textContent = show ? "隱藏" : "顯示";
+    this.setAttribute("aria-label", (show ? "隱藏" : "顯示") + "管理密碼");
+  });
+  byId("datasetUploadForm").addEventListener("submit", stageDatasetUpload);
+  byId("datasetFileInput").addEventListener("change", function () {
+    var file = this.files && this.files[0];
+    byId("datasetFileName").textContent = file ? file.name + " · " + humanFileSize(file.size) : "尚未選擇檔案（上限 64 MB）";
+  });
+  byId("datasetSearch").addEventListener("input", renderDatasetFiles);
+  byId("datasetStateFilter").addEventListener("change", renderDatasetFiles);
+  byId("dataChangeSearch").addEventListener("input", renderDataChanges);
+  byId("dataChangeStateFilter").addEventListener("change", renderDataChanges);
+  byId("auditSearch").addEventListener("input", renderAuditEvents);
+  byId("auditResultFilter").addEventListener("change", renderAuditEvents);
+  document.querySelectorAll("[data-management-tab]").forEach(function (tab) {
+    tab.addEventListener("click", function () { selectManagementTab(this.getAttribute("data-management-tab"), { focus: false }); });
+    tab.addEventListener("keydown", handleManagementTabKeys);
+  });
   byId("corpusSearch").addEventListener("input", renderCorpusList);
   byId("corpusStateFilter").addEventListener("change", renderCorpusList);
   byId("runtimeForm").addEventListener("submit", saveRuntime);
@@ -1167,13 +2191,27 @@
     this.setAttribute("aria-label", (show ? "隱藏" : "顯示") + " API key");
   });
   byId("closeCorpusDialog").addEventListener("click", closeCorpusDialog);
+  byId("closeDatasetDialog").addEventListener("click", closeDatasetDialog);
+  byId("closeDataChangeDialog").addEventListener("click", closeDataChangeDialog);
   byId("corpusDialog").addEventListener("close", function () {
     if (dialogReturnFocus && typeof dialogReturnFocus.focus === "function") dialogReturnFocus.focus();
     dialogReturnFocus = null;
   });
   byId("corpusDialog").addEventListener("click", function (event) { if (event.target === this) closeCorpusDialog(); });
+  byId("datasetDialog").addEventListener("close", function () {
+    if (datasetDialogReturnFocus && typeof datasetDialogReturnFocus.focus === "function") datasetDialogReturnFocus.focus();
+    datasetDialogReturnFocus = null;
+  });
+  byId("datasetDialog").addEventListener("click", function (event) { if (event.target === this) closeDatasetDialog(); });
+  byId("dataChangeDialog").addEventListener("close", function () {
+    if (dataChangeDialogReturnFocus && typeof dataChangeDialogReturnFocus.focus === "function") dataChangeDialogReturnFocus.focus();
+    dataChangeDialogReturnFocus = null;
+  });
+  byId("dataChangeDialog").addEventListener("click", function (event) { if (event.target === this) closeDataChangeDialog(); });
   document.addEventListener("keydown", function (event) {
     if (event.key !== "Escape") return;
+    if (byId("dataChangeDialog").open) { closeDataChangeDialog(); return; }
+    if (byId("datasetDialog").open) { closeDatasetDialog(); return; }
     if (byId("corpusDialog").open) { closeCorpusDialog(); return; }
     if (byId("sidebar").classList.contains("open")) setSidebarOpen(false);
   });
@@ -1184,6 +2222,8 @@
   loadHealth();
   loadStats(false);
   loadExamples();
-  loadRuntime(false);
-  loadTraining(false);
+  lockDataManagement();
+  loadAdminSession().then(function (authenticated) {
+    if (authenticated) loadRuntime(false);
+  });
 }());

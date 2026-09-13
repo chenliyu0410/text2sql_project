@@ -1,3 +1,4 @@
+import shutil
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -346,3 +347,35 @@ def test_concurrent_mode_selection_returns_complete_runtimes(
     assert {item.mode for item in results} == {"offline", "online"}
     assert all(item.database == database.resolve() for item in results)
     assert "thread-secret" not in repr(manager.status())
+
+
+def test_database_switch_is_atomic_and_old_runtime_remains_usable(
+    database: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    replacement = tmp_path / "power-version-2.db"
+    shutil.copyfile(database, replacement)
+    manager = RuntimeManager(database=database, default_mode="offline")
+    old_runtime = manager.active_runtime
+
+    new_runtime = manager.switch_database(replacement)
+
+    assert new_runtime.database == replacement.resolve()
+    assert manager.active_runtime is new_runtime
+    assert old_runtime.database == database.resolve()
+    assert old_runtime.executor.execute("SELECT COUNT(*) FROM v_outage LIMIT 1", ())[1]
+    assert manager.get_runtime("offline").database == replacement.resolve()
+
+
+def test_failed_database_switch_keeps_previous_runtime(
+    database: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    manager = RuntimeManager(database=database, default_mode="offline")
+    previous = manager.active_runtime
+
+    with pytest.raises(FileNotFoundError):
+        manager.switch_database(tmp_path / "missing.db")
+
+    assert manager.active_runtime is previous
+    assert manager.get_runtime().database == database.resolve()

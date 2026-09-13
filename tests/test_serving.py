@@ -8,8 +8,13 @@ from fastapi.testclient import TestClient
 from ingest.build_db import build_database
 from ingest.validate import PROJECT_ROOT
 from serving import runtime as runtime_module
+from serving.admin_auth import AdminAuthManager
 from serving.app import create_app
 from serving.runtime import build_runtime
+
+ORIGIN = "http://testserver"
+ADMIN_USERNAME = "serving-admin"
+ADMIN_PASSWORD = "serving-test-password"
 
 
 @pytest.fixture(scope="module")
@@ -17,7 +22,26 @@ def client(tmp_path_factory: pytest.TempPathFactory):
     database = tmp_path_factory.mktemp("serving") / "power.db"
     build_database(database)
     runtime = build_runtime(database=database)
-    with TestClient(create_app(runtime)) as test_client:
+    auth = AdminAuthManager(
+        username=ADMIN_USERNAME,
+        password=ADMIN_PASSWORD,
+        pbkdf2_iterations=1_000,
+    )
+    with TestClient(create_app(runtime, auth_manager=auth), base_url=ORIGIN) as test_client:
+        login = test_client.post(
+            "/api/admin/session",
+            headers={"Origin": ORIGIN, "Sec-Fetch-Site": "same-origin"},
+            json={"username": ADMIN_USERNAME, "password": ADMIN_PASSWORD},
+        )
+        assert login.status_code == 200
+        csrf = login.json()["data"]["csrf_token"]
+        test_client.headers.update(
+            {
+                "Origin": ORIGIN,
+                "Sec-Fetch-Site": "same-origin",
+                "X-PowerQuery-CSRF": csrf,
+            }
+        )
         yield test_client
 
 
@@ -44,7 +68,7 @@ def test_health_stats_and_static_frontend(client: TestClient) -> None:
     assert home.status_code == 200
     assert "PowerQuery TW" in home.text
     assert "default-src 'self'" in home.headers["content-security-policy"]
-    for view in ("query", "overview", "corpus", "settings", "docs"):
+    for view in ("query", "overview", "data", "settings", "docs"):
         assert f'data-view="{view}"' in home.text
         assert f'data-panel="{view}"' in home.text
     assert 'id="runtimeForm"' in home.text
@@ -52,6 +76,11 @@ def test_health_stats_and_static_frontend(client: TestClient) -> None:
     assert '<option value="">沿用預設模式</option>' in home.text
     assert 'option value="auto">自動判斷</option>' in home.text
     assert 'id="corpusEntries"' in home.text
+    assert 'id="dataLoginForm"' in home.text
+    assert 'id="datasetUploadForm"' in home.text
+    assert 'id="dataChanges"' in home.text
+    assert 'id="databaseVersions"' in home.text
+    assert 'id="auditEvents"' in home.text
     assert 'href="/docs"' in home.text
 
     stylesheet = client.get("/static/app.css")
@@ -60,6 +89,9 @@ def test_health_stats_and_static_frontend(client: TestClient) -> None:
     assert ".chart svg {" not in stylesheet.text
     assert ".plotly-chart .main-svg { position: absolute" in stylesheet.text
     assert ".mode-option:has(input:focus-visible)" in stylesheet.text
+    management_styles = client.get("/static/styles.css")
+    assert management_styles.status_code == 200
+    assert ".management-tabs" in management_styles.text
 
     script = client.get("/static/app.js")
     assert script.status_code == 200
@@ -238,7 +270,7 @@ def test_successful_query_learning_is_inspectable_without_persisted_rows(
     learning = payload["data"]["learning"]
     candidate_id = learning["id"]
     assert learning["question"] == question
-    assert learning["status"] in {"promoted", "rejected", "ignored"}
+    assert learning["status"] in {"pending_review", "rejected", "ignored"}
 
     status_response = client.get("/api/training-status")
     entries_response = client.get("/api/corpus/entries", params={"state": "all", "limit": 500})
@@ -305,14 +337,14 @@ def test_pending_online_candidate_can_be_reviewed_locally(client: TestClient) ->
 
     response = client.post(
         f"/api/corpus/entries/{pending['id']}/review",
-        json={"decision": "reject", "reviewer": "local-test-operator"},
+        json={"decision": "reject", "note": "整合測試拒絕"},
     )
 
     assert response.status_code == 200
     assert response.json()["data"]["status"] == "rejected"
     repeated = client.post(
         f"/api/corpus/entries/{pending['id']}/review",
-        json={"decision": "approve", "reviewer": "local-test-operator"},
+        json={"decision": "approve", "note": "不可重複審核"},
     )
     assert repeated.status_code == 409
 

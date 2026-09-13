@@ -78,6 +78,30 @@ def test_rebuild_is_content_idempotent(tmp_path: Path) -> None:
 
 
 @pytest.mark.integration
+def test_build_accepts_reviewed_source_snapshot_with_optional_outage_removed(
+    tmp_path: Path,
+) -> None:
+    target = tmp_path / "power-without-outages.db"
+    report = build_database(
+        target,
+        source_paths={"outage_csv": tmp_path / "removed-outage.csv"},
+    )
+
+    assert report["counts"]["outages"] == 0
+    assert report["table_counts"]["dim_outage"] == 0
+    with sqlite3.connect(target) as connection:
+        assert connection.execute("SELECT COUNT(*) FROM v_outage").fetchone()[0] == 0
+
+
+def test_build_rejects_unknown_source_slot(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="不支援的資料來源"):
+        build_database(
+            tmp_path / "power.db",
+            source_paths={"arbitrary_sqlite": tmp_path / "unsafe.db"},
+        )
+
+
+@pytest.mark.integration
 def test_locked_target_reports_recovery_and_removes_temporary_database(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

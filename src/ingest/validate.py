@@ -226,6 +226,22 @@ def validate_files(
     unknown_dates = {date for date, _ in long_keys} - date_set
     if unknown_dates:
         raise DataValidationError("daily_long.csv 包含 daily.csv 以外的日期")
+    expected_columns = {
+        column.strip().removesuffix("(萬瓩)").strip() for column in generation_columns
+    }
+    unknown_columns = {column for _, column in long_keys} - expected_columns
+    if unknown_columns:
+        raise DataValidationError("daily_long.csv 包含 daily.csv 以外的機組欄位")
+    columns_by_date: dict[str, set[str]] = {date: set() for date in dates}
+    for date, column in long_keys:
+        columns_by_date[date].add(column)
+    incomplete_dates = [
+        date for date, columns in columns_by_date.items() if columns != expected_columns
+    ]
+    if incomplete_dates:
+        raise DataValidationError(
+            f"daily_long.csv 每個日期的機組欄位集合必須與 daily.csv 一致：{incomplete_dates[0]}"
+        )
     expected_long_rows = len(dates) * len(generation_columns)
     if len(daily_long) != expected_long_rows:
         raise DataValidationError(

@@ -17,4 +17,4 @@
 
 `PEAK_SUM_ACROSS_DAYS`、`UNIT_MISMATCH`、`NO_UNIT_DETAIL`、`RESIDUAL_TREND`、`PLANT_TOTAL_INCOMPLETE`、`KNOWN_CAPACITY_GAP`、`ZERO_PERIOD_AMBIGUOUS`、`AMBIGUOUS_UNIT_NAME` 與 `DATA_RANGE_OUT_OF_BOUNDS` 都回傳穩定的 `code`、`severity`、說明、建議與 evidence，前端不需要比對中文錯誤字串。
 
-陷阡45 題用來測命中率；測試同時保留 20 個規則反例，包含「單日跨機組加總」、「同單位容量比較」、「殘差欄單日值」與「有明確期間的零出力」，避免以「全部攔下」來虛增安全指標。
+陷阱 45 題用來測命中率；測試同時保留 20 個規則反例，包含「單日跨機組加總」、「同單位容量比較」、「殘差欄單日值」與「有明確期間的零出力」，避免以「全部攔下」來虛增安全指標。

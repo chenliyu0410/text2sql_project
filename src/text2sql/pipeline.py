@@ -235,6 +235,7 @@ class Text2SQLPipeline:
                     "source": source,
                     "sql": generated.sql,
                     "params": list(generated.params),
+                    "tables": list(guard_result.tables),
                     "columns": columns,
                     "rows": [list(row) for row in rows],
                     "record_count": len(rows),

@@ -32,6 +32,8 @@ class CorpusCandidate:
     outcome: str
     params: tuple[object, ...] = ()
     result_checksum: str = ""
+    tables: tuple[str, ...] = ()
+    data_provenance: dict[str, Any] = field(default_factory=dict)
     validation: dict[str, Any] = field(default_factory=dict)
 
 

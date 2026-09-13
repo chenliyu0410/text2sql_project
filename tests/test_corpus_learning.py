@@ -88,6 +88,8 @@ def _submit(
     intent: str = "system_metric",
     sql: str = SQL,
     rows=ROWS,
+    tables=("v_system",),
+    data_provenance=None,
 ) -> dict[str, object]:
     return service.submit(
         question=question,
@@ -97,19 +99,24 @@ def _submit(
         source=source,
         columns=COLUMNS,
         rows=rows,
+        tables=tables,
+        data_provenance=data_provenance,
         candidate_id=candidate_id,
     )
 
 
-def test_router_candidate_promotes_in_isolated_workspace_and_hot_reloads(
+def test_router_candidate_waits_for_review_then_promotes_and_hot_reloads(
     tmp_path: Path,
 ) -> None:
     service, pipeline, canonical = _service(tmp_path)
 
-    result = _submit(service, question="請替 a@example.com 查詢 2026 年資料")
+    pending = _submit(service, question="請替 a@example.com 查詢 2026 年資料")
 
-    assert result["status"] == "promoted"
+    assert pending["status"] == "pending_review"
+    assert pending["approved_by"] == ""
     assert len(load_corpus(canonical)["examples"]) == 1
+    result = service.review(pending["id"], approve=True, reviewer="operator")
+    assert result["status"] == "promoted"
     learned = load_corpus(service.corpus_path)["examples"][-1]
     assert learned["params"] == list(PARAMS)
     assert learned["question"] == "請替 [EMAIL] 查詢 2026 年資料"
@@ -120,6 +127,32 @@ def test_router_candidate_promotes_in_isolated_workspace_and_hot_reloads(
     status = service.status()
     assert status["candidate_counts"]["promoted"] == 1
     assert status["index_synchronized"] is True
+    assert status["policy"]["auto_promote_source"] is None
+    assert status["policy"]["manual_review_required"] is True
+
+
+def test_candidate_keeps_immutable_table_and_source_provenance(tmp_path: Path) -> None:
+    service, _pipeline_instance, _canonical = _service(tmp_path)
+    provenance = {
+        "database_version": "db-demo-v1",
+        "data_sources": [
+            {
+                "dataset": "daily_csv",
+                "display_name": "daily.csv",
+                "sha256": "a" * 64,
+                "views": ["v_system"],
+            }
+        ],
+    }
+
+    pending = _submit(service, data_provenance=provenance)
+    assert pending["tables"] == ["v_system"]
+    assert pending["data_provenance"] == provenance
+    promoted = service.review(pending["id"], approve=True, reviewer="operator")
+    assert promoted["status"] == "promoted"
+    learned = load_corpus(service.corpus_path)["examples"][-1]
+    assert learned["metadata"]["tables"] == ["v_system"]
+    assert learned["metadata"]["data_provenance"] == provenance
 
 
 def test_llm_candidate_is_validated_but_waits_for_review(tmp_path: Path) -> None:
@@ -213,7 +246,8 @@ def test_question_already_in_published_corpus_is_ignored(tmp_path: Path) -> None
 
 def test_new_runtime_pipeline_attaches_to_latest_promoted_corpus(tmp_path: Path) -> None:
     service, _pipeline_instance, canonical = _service(tmp_path)
-    _submit(service)
+    pending = _submit(service)
+    service.review(pending["id"], approve=True, reviewer="operator")
     replacement = _pipeline(canonical)
 
     attached = service.attach_pipeline(replacement)
@@ -269,7 +303,8 @@ def test_baseline_change_rebases_workspace_and_requeues_promoted_candidates(
     tmp_path: Path,
 ) -> None:
     service, _pipeline_instance, canonical = _service(tmp_path)
-    promoted = _submit(service)
+    staged = _submit(service)
+    promoted = service.review(staged["id"], approve=True, reviewer="operator")
     pending = _submit(service, question="canonical 升版前的待審候選", source="llm")
     previous_manifest = json.loads(service.workspace_manifest_path.read_text(encoding="utf-8"))
 
@@ -326,7 +361,8 @@ def test_baseline_change_rebases_workspace_and_requeues_promoted_candidates(
 
 def test_database_manifest_change_alone_triggers_safe_rebase(tmp_path: Path) -> None:
     service, _pipeline_instance, canonical = _service(tmp_path)
-    promoted = _submit(service)
+    staged = _submit(service)
+    promoted = service.review(staged["id"], approve=True, reviewer="operator")
     replacement = _pipeline(canonical)
 
     reopened = CorpusLearningService(
@@ -353,10 +389,12 @@ def test_non_promoted_candidate_can_be_corrected_as_a_revision(tmp_path: Path) -
     corrected = _submit(service, question=question, source="router")
 
     assert pending["status"] == "pending_review"
-    assert corrected["status"] == "promoted"
+    assert corrected["status"] == "pending_review"
     assert corrected["id"] != pending["id"]
     assert corrected["revision_of"] == pending["id"]
     assert len(service.list_entries()) == 2
+    corrected = service.review(corrected["id"], approve=True, reviewer="operator")
+    assert corrected["status"] == "promoted"
 
     idempotent = _submit(
         service,
@@ -374,8 +412,10 @@ def test_rejected_and_ignored_candidates_allow_later_revisions(tmp_path: Path) -
     rejected = _submit(service, question="待修正的不安全查詢", sql="DROP TABLE v_system")
     corrected = _submit(service, question="待修正的不安全查詢")
     assert rejected["status"] == "rejected"
-    assert corrected["status"] == "promoted"
+    assert corrected["status"] == "pending_review"
     assert corrected["revision_of"] == rejected["id"]
+    corrected = service.review(corrected["id"], approve=True, reviewer="operator")
+    assert corrected["status"] == "promoted"
 
     ignored = _submit(service, question="alpha beta gamma delta")
     assert ignored["status"] == "ignored"
@@ -396,6 +436,8 @@ def test_rejected_and_ignored_candidates_allow_later_revisions(tmp_path: Path) -
         question="alpha beta gamma delta",
         sql='SELECT "日期" FROM v_system WHERE "日期" = ? ORDER BY "日期" LIMIT 1',
     )
+    assert revised["status"] == "pending_review"
+    revised = reopened.review(revised["id"], approve=True, reviewer="operator")
     assert revised["status"] == "promoted"
     assert revised["revision_of"] == ignored["id"]
 
@@ -423,11 +465,12 @@ def test_end_to_end_learning_redacts_taiwan_personal_data(tmp_path: Path) -> Non
     service, _pipeline_instance, _canonical = _service(tmp_path)
     original_values = ("王小明", "0912-345-678", "A123456789")
 
-    result = _submit(
+    pending = _submit(
         service,
         question="請替王小明（0912-345-678，身分證 A123456789）查詢 2026 年資料",
     )
 
+    result = service.review(pending["id"], approve=True, reviewer="operator")
     assert result["status"] == "promoted"
     surfaces = (
         service.candidates_path.read_text(encoding="utf-8"),

@@ -4,13 +4,13 @@
 
 SQLite 物理層使用英文 `snake_case`，Text2SQL 只允許查詢中文 `v_*` 語意檢視。日期在入庫時從 `YYYYMMDD` 轉為 ISO `YYYY-MM-DD`；設備主檔容量保留「瓩」，每日尖峰資料保留「萬瓩」。
 
-`python -m ingest.fetch` 會把最新檔放在 `data/raw/`，同時以 SHA-256 為檔名放入 `data/archive/<dataset>/`。相同內容不會產生重複快照，並在 `data/raw/manifest.json` 記錄來源與授權。
+`uv run python -m ingest.fetch` 會把最新檔放在 `data/raw/`，同時以 SHA-256 為檔名放入 `data/archive/<dataset>/`。相同內容不會產生重複快照，並在 `data/raw/manifest.json` 記錄來源與授權。
 
 ## 物理表
 
 | 表 | 主鍵 | 粒度 | 來源／限制 |
 |---|---|---|---|
-| `dim_plant` | `id` | 一列一電廠 | `units.csv`；電廠主要燃料由所屬機組汇總 |
+| `dim_plant` | `id` | 一列一電廠 | `units.csv`；電廠主要燃料由所屬機組彙總 |
 | `dim_unit` | `id` | 一列一機組 | `capacity_kw` 單位為瓩；不含核能、IPP 與風光彙總主檔。商轉日期原檔同時有日與月精度，月精度以當月 1 日作排序值，並保留原值與精度欄位 |
 | `dim_date` | `date` | 一列一日 | ISO 日期，由 `daily.csv` 取得 |
 | `dim_b_column` | `id` | 一列一個原始機組／彙總欄 | 64 個欄位全數保留，包含 21 個沒有機組主檔的欄位 |

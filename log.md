@@ -2,6 +2,25 @@
 
 > 這份檔案在每個可驗證、可回退的儲存點更新。回退前需保留使用者原有的未提交變更。
 
+## CP-013 — 資料治理、專案交接與 Windows 一鍵展示
+
+- 時間：2026-09-13 22:25 +08:00
+- 狀態：已完成
+- 管理介面：原「語料中心」已改為「資料管理」，登入後可在資料檔、待審異動、語料審查、資料庫版本與稽核紀錄五個頁籤中調閱及操作；左側仍保留查詢中心、資料總覽、API 與模型及 API 文件。
+- 登入與權限：本機展示預設為 `admin`／`PowerQuery@123`，只允許 loopback；可由環境變數覆寫。管理 session 使用短期 HttpOnly／SameSite cookie，異動 API 另驗證同源與 CSRF，審核者一律取自伺服器 session。
+- 資料熱插拔：五個固定 CSV 資料槽可新增或替換，`outage_csv` 可移除；上傳、移除與回退只建立 `pending_review` 候選，驗證 schema、跨檔資料品質並建置不可變 SQLite 後，仍須人工核准才切換。舊版與來源 checksum 保留，可下載歷史來源、建立需再次審核的回退異動。
+- 語料治理：離線 router 與線上 LLM 產生的新語料均先停在待人工審核；核准時重新執行去識別、SQL／語意、結果與 benchmark 回歸檢查，通過才發布及重建索引。候選保存查詢 view、資料版本與實際來源檔 SHA-256，未保存結果 rows。
+- 發布一致性：build journal 先綁定候選 DB 與確切來源 checksum；mutation journal 使 staged、failed、rejected 的 change 與 audit 在中斷後成對、冪等恢復；不可變來源、DB、版本、核准異動及稽核事件持久化後，`active.json` 才最後切換。publish journal 可恢復中斷發布，audit head 與永久建立標記能分辨首次舊版遷移和後續錨點遺失，active revision 會與發布事件交叉核對；來源、DB、manifest、指標或稽核遭竄改時，查詢及所有管理讀寫都 fail closed。每次查詢的 runtime 與 provenance 使用同一個已驗證 snapshot，多 worker 依共享指標同步。
+- 熱插拔驗收：在隔離的暫存工作區，以同一歲修問句驗證 `138 筆 → 移除候選仍 138 筆 → 核准後 0 筆 → 重傳候選仍 0 筆 → 核准後恢復 138 筆`，證明人工核准是唯一生效點。
+- 瀏覽器驗收：實際登入新版資料管理，完成查詢「2026年四月有哪些機組在歲修？」、來源追溯、語料人工核准與稽核調閱；候選顯示 `v_outage`、作用中資料版本及 `outage.csv`／`units.csv` checksum，頁面無先前的大型失效圖片。
+- 重啟驗收：既有 `.powerquery-data` 工作區已平滑建立 audit head 及永久建立標記；連續兩次啟動後登入、作用中版本、五個來源、DB checksum 與稽核鏈均有效，且沒有殘留 mutation／publish journal。驗收後已停止服務，避免 Windows／OneDrive 占用 SQLite。
+- 自動驗收：`uv lock --check`、`ruff format --check .`、`ruff check .`、`node --check src/serving/static/app.js`、`git diff --check HEAD` 與 `pytest -q` 全數通過（184 passed，含 3 個 Windows launcher 測試）；只保留 Starlette 第三方淘汰警告與使用公開 demo 帳密的預期警告。
+- 本機安全備份：實機遷移前保留 `data/processed/.powerquery-data-pre-cp013` 與 `data/processed/.powerquery-learning-pre-cp013`，均位於 gitignored 執行期資料目錄。
+- 進度與分工：README 已加入 0.3.0／Phase 1～8、184 passed、熱插拔及實機驗收快照；新增 `docs/TEAM_4_ROLES.md`，以 A～D 明定 Phase 9 唯一檔案所有權、量化驗收、跨組交接單、共用 AI 規則與四段可直接啟動的角色 Prompt；`log.md` 明訂為各角色可追加本次 checkpoint 的共享例外。
+- 一鍵展示：新增根目錄 `啟動.bat` 與兩個 `scripts/launcher_*.ps1` 輔助程式，可從中文、OneDrive 或含空白路徑雙擊；會檢查 `uv`、只在依賴輸入改變時同步環境、初始化目錄、缺少時建庫、重用既有服務，並在 `127.0.0.1:8765` 健康後開啟瀏覽器。實機驗證依賴 stamp 為兩段 64 位 SHA-256、已啟動服務可直接沿用，且 `/api/health` 與首頁均回 200；驗收後已停止服務。
+- 目錄整理：`DATA_DICTIONARY.md`、`EVALUATION.md`、`SEMANTIC_GUARD.md`、`SERVING.md`、`SYSTEM_CARD.md`、`TEXT2SQL_PIPELINE.md` 已集中到 `docs/`，README 與相對連結同步更新且本機 Markdown link check 無斷鏈；根目錄只保留專案入口、建置設定、進度紀錄與一鍵啟動檔。
+- 回退方式：回退 `feat: add governed data management and project launcher` 這個 commit；先停止服務，再視需要以 CP-013 前本機備份恢復執行期工作區。CP-001～012、已發布 Release 與使用者原有未提交變更保持不動。
+
 ## CP-012 — Windows 資料庫占用提示與建庫復原
 
 - 時間：2026-09-13 20:27 +08:00
@@ -9,7 +28,7 @@
 - 現象與根因：Windows 執行 `ingest.build_db` 時，仍在運作的 PowerQuery／SQLite connection 占用 `data/processed/power.db`，使最後的原子 `os.replace` 回傳 WinError 5；前段資料建置本身沒有失敗。
 - 修正：原子發布遇到 `PermissionError` 時改拋相容於既有 `PermissionError`／`OSError` 捕捉邏輯的 `DatabasePublishError`，明確指示先以 `Ctrl+C` 停止服務並確認目錄可寫；CLI 只顯示這段操作訊息與 exit code 1，不再輸出 traceback。
 - 保護：替換失敗時保留既有 `power.db`，並由 `finally` 嘗試移除本次 `.power-*.db` 暫存檔；測試鎖定情境確認舊檔內容未變且一般 target-only lock 不留暫存檔。
-- 文件：`SERVING.md` 已補上 Windows 重建資料庫前必須停止服務的順序與原因。
+- 文件：`docs/SERVING.md` 已補上 Windows 重建資料庫前必須停止服務的順序與原因。
 - 實機復原：關閉先前預覽服務後重新建庫成功，SQLite `PRAGMA quick_check=ok`；再由 `uv run powerquery --serve` 於 `127.0.0.1:8000` 啟動，`GET /api/health` 回 200。占用狀態重跑建庫則正確保留原資料庫並輸出新提示。
 - 自動驗收：`ruff format --check .`、`ruff check .`、`git diff --check`、`pytest -q` 全數通過（113 passed）；僅保留既有 Starlette 第三方 AnyIO alias 淘汰警告。
 - 回退方式：回退 `fix: explain locked database rebuilds on Windows` 這個 commit；CP-001～011、已發布 Release 與使用者原有變更保持不動。
@@ -66,7 +85,7 @@
 - 時間：2026-09-13 14:23 +08:00
 - 狀態：已完成
 - API：完成 FastAPI 應用、延遲載入 runtime、健康／資料統計／語料狀態／範例／查詢端點與 OpenAPI 文件；資料庫未就緒時回 503，輸入格式錯誤回 422，語意拒答維持結構化業務 envelope。
-- CLI：`powerquery` 可直接查詢、輸出完整 `--json`，或以 `--serve` 啟動 Uvicorn；`make serve` 與 `SERVING.md` 收錄可重現操作方式。
+- CLI：`powerquery` 可直接查詢、輸出完整 `--json`，或以 `--serve` 啟動 Uvicorn；`make serve` 與 `docs/SERVING.md` 收錄可重現操作方式。
 - 呈現：後端只建立 `line`、`bar`、`scatter` 白名單圖表規格，日期／數值、類別／數值與雙數值形狀各自選圖；scalar、空結果、全 NULL 或純文字回傳 `chart_spec: null`。圖表 x/y 直接投影自 SQL rows。
 - 前端：完成繁中對話介面、資料涵蓋側欄、範例問句、階段式進度、可取消查詢、結構化錯誤／限制揭露、KPI、表格、SQL 細節與響應式版面。固定版本 Plotly.js basic bundle提供互動圖表，無法載入 CDN 時退回相同資料的原生 SVG。
 - 安全與無障礙：所有動態內容使用 `textContent` 或 SVG attribute，不拼接不可信 HTML；加入 CSP、`nosniff`、frame deny 與 no-referrer headers；支援雙 live region、`aria-current`、鍵盤焦點、中文輸入法組字、防誤送 Enter、reduced motion 與手機 safe area。
@@ -81,9 +100,9 @@
 - 時間：2026-09-13 14:09 +08:00
 - 狀態：已完成
 - 結果比對：候選 SQL 與標準 SQL 都在同一個唯讀 SQLite 快照上執行；指標以欄名集合與列集合等價性計算，不比對 SQL 字串。
-- 離線基準：黃金意圖 80/80；eval 意圖 60/60；執行結果 60/60，`in_corpus=true` 與 `false` 各 30/30；攻擊 15/15；語意陷阡 45/45；合法邊界題 0/20 誤攔。所有驗收條件通過。
+- 離線基準：黃金意圖 80/80；eval 意圖 60/60；執行結果 60/60，`in_corpus=true` 與 `false` 各 30/30；攻擊 15/15；語意陷阱 45/45；合法邊界題 0/20 誤攔。所有驗收條件通過。
 - 詮釋界線：上述執行成績標示為 `offline_deterministic_rules`，是可重現規則 handler 基準，不是線上 GPT 準確率；沒有 API key 時不會把 benchmark 答案假裝成 LLM 輸出。
-- Ablation：RAG top-1 意圖為 31/60（51.67%），無檢索且預設 other 為 6/60（10%）；語意守門開／關陷阡處理為 100% / 0%；規則查詢首次已成功，重試 1/2/3 次無差異；關閉路由的對照需線上 LLM，誠實標記 `not_run_without_online_llm`。
+- Ablation：RAG top-1 意圖為 31/60（51.67%），無檢索且預設 other 為 6/60（10%）；語意守門開／關陷阱處理為 100% / 0%；規則查詢首次已成功，重試 1/2/3 次無差異；關閉路由的對照需線上 LLM，誠實標記 `not_run_without_online_llm`。
 - 語料回歸：`CorpusRegressionGate` 比較候選 corpus 與基線的獨立題庫 top-1 意圖檢索率，超過可容忍退步就拒絕整批晉升。
 - 產物：`reports/eval_latest.json`、只追加的 `reports/eval_history.jsonl`、`reports/figures/eval_summary.svg`；`make eval` 可重建。
 - 驗收：`python -m eval.run_eval`、`ruff format --check .`、`ruff check .`、`pytest -q` 全數通過（57 passed）。
@@ -98,7 +117,7 @@
 - 分級：`refuse` 與 `clarify` 不執行 SQL；`disclose` 可繼續查詢但必須隨結果回傳限制。同一規則在問句層與 SQL 層同時命中時只揭露一次。
 - 動態資料：資料期間從 `meta_manifest` 讀取；殘差欄、電廠總量不完整與容量缺口對象從 `meta_pitfall` 讀取，查詢層不重複寫死清單。
 - 邊界檢查：單日跨機組加總、同單位容量比較、殘差欄單日值、具明確期間的零出力等 20 個反例均放行。
-- 驗收：陷阡題 45/45 命中（100%，要求 ≥ 95%）；20 個合法邊界反例 0 誤攔（0%，要求 ≤ 5%）；`ruff format --check .`、`ruff check .`、`pytest -q` 全數通過（52 passed）。
+- 驗收：陷阱題 45/45 命中（100%，要求 ≥ 95%）；20 個合法邊界反例 0 誤攔（0%，要求 ≤ 5%）；`ruff format --check .`、`ruff check .`、`pytest -q` 全數通過（52 passed）。
 - 回退方式：回退 `feat: add data-aware semantic guardrails` 這個 commit；CP-001～005 與使用者原有變更保持不動。
 
 ## CP-005 — Phase 4 Text2SQL 管線

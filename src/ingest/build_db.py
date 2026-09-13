@@ -9,6 +9,7 @@ import os
 import sqlite3
 import tempfile
 from collections import defaultdict
+from collections.abc import Mapping
 from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
@@ -328,8 +329,21 @@ def build_database(
     *,
     root: Path = PROJECT_ROOT,
     report_path: Path | None = None,
+    source_paths: Mapping[str, Path] | None = None,
 ) -> dict[str, Any]:
     paths = resolve_configured_paths(root)
+    if source_paths is not None:
+        allowed_sources = {
+            "units_csv",
+            "daily_csv",
+            "crosswalk_csv",
+            "daily_long_csv",
+            "outage_csv",
+        }
+        unknown_sources = set(source_paths) - allowed_sources
+        if unknown_sources:
+            raise ValueError(f"不支援的資料來源：{sorted(unknown_sources)}")
+        paths.update({name: Path(path).resolve() for name, path in source_paths.items()})
     validation = validate_files(
         paths["units_csv"],
         paths["daily_csv"],

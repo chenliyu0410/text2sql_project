@@ -1,6 +1,6 @@
 # Offline Evaluation
 
-`make eval` 在固定 SQLite 快照上執行四份版控題庫，不需要 API key。評測會產生：
+`uv run python -m eval.run_eval` 在固定 SQLite 快照上執行四份版控題庫，不需要 API key；已安裝 `make` 的環境也可用 `make eval` 捷徑。評測會產生：
 
 - `reports/eval_latest.json`：當次完整指標、驗收條件、失敗清單與對照實驗。
 - `reports/eval_history.jsonl`：只追加的歷史摘要，用於追蹤語料或規則更新是否退步。
@@ -10,7 +10,7 @@
 
 意圖準確率以黃金題庫比對。執行準確率會各自執行候選 SQL 與標準 SQL，將欄位順序與列順序正規化後比對結果集，不比對 SQL 字串。執行指標分別報告 `in_corpus=true/false`，不用合併數字掩蓋泛化差異。
 
-語意安全同時報告 45 題陷阡命中率與 20 個合法邊界反例的誤攔率。SQL 安全守門必須攔截全部 15 種攻擊。
+語意安全同時報告 45 題陷阱命中率與 20 個合法邊界反例的誤攔率。SQL 安全守門必須攔截全部 15 種攻擊。
 
 ## 離線結果的界線
 

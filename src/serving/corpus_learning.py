@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import sqlite3
 import tempfile
 from collections import Counter
 from collections.abc import Iterable, Iterator, Mapping, Sequence
@@ -230,6 +231,18 @@ class CorpusLearningService:
             self.attach_pipeline(pipeline)
 
     def _database_version(self) -> str:
+        try:
+            uri = f"{self.database.as_uri()}?mode=ro"
+            with sqlite3.connect(uri, uri=True) as connection:
+                row = connection.execute(
+                    "SELECT data_version, data_checksum FROM meta_manifest WHERE id = 1"
+                ).fetchone()
+            if row and row[0] and row[1]:
+                return deidentify(f"db-{row[0]}-{str(row[1])[:12]}")
+        except (OSError, sqlite3.Error, ValueError):
+            # Tests and legacy databases may not yet contain meta_manifest. The
+            # stat-based fallback still detects a changed snapshot safely.
+            pass
         try:
             stat = self.database.stat()
         except FileNotFoundError:
@@ -538,6 +551,7 @@ class CorpusLearningService:
         response: PipelineResponse | Mapping[str, Any],
         *,
         pipeline: Text2SQLPipeline | None = None,
+        data_provenance: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Record a query outcome without propagating learning failures to callers."""
         try:
@@ -557,6 +571,8 @@ class CorpusLearningService:
                 source=self._response_source(data),
                 columns=tuple(data.get("columns", ())),
                 rows=tuple(tuple(row) for row in data.get("rows", ())),
+                tables=tuple(str(table) for table in data.get("tables", ())),
+                data_provenance=data_provenance,
                 pipeline=pipeline,
             )
         except Exception as error:  # Learning is explicitly fail-open for query delivery.
@@ -585,10 +601,12 @@ class CorpusLearningService:
         source: str,
         columns: Sequence[Any],
         rows: Sequence[Sequence[Any]],
+        tables: Sequence[str] = (),
+        data_provenance: Mapping[str, Any] | None = None,
         pipeline: Text2SQLPipeline | None = None,
         candidate_id: str | None = None,
     ) -> dict[str, Any]:
-        """Submit a successful result; only deterministic router results auto-promote."""
+        """Submit a successful result for validation and mandatory human review."""
         with self._workspace_transaction():
             active_pipeline = self._active_pipeline(pipeline)
             clean_question = deidentify(question).strip()
@@ -596,6 +614,14 @@ class CorpusLearningService:
             clean_params = tuple(_json_value(value) for value in params)
             clean_intent = deidentify(intent)
             clean_source = source if source in {"router", "llm"} else "unknown"
+            clean_tables = sorted({deidentify(str(table)) for table in tables})
+            clean_provenance = _json_value(
+                data_provenance
+                or {
+                    "database_version": self.data_manifest_version,
+                    "data_sources": [],
+                }
+            )
             normalized = normalize_question(clean_question)
             if not normalized:
                 raise ValueError("question 不可為空。")
@@ -665,9 +691,12 @@ class CorpusLearningService:
                 "updated_at": timestamp,
                 "schema_version": self.schema_version,
                 "data_manifest_version": self.data_manifest_version,
+                "tables": clean_tables,
+                "data_provenance": clean_provenance,
                 "outcome": "success",
                 "status": "validating",
                 "approved_by": "",
+                "review_note": "",
                 "result_checksum": _canonical_result_checksum(columns, rows),
                 "validation": {},
                 "reason": None,
@@ -697,15 +726,14 @@ class CorpusLearningService:
                 )
                 return _json_value(entry)
 
-            if entry["source"] != "router":
-                entry["status"] = "pending_review"
-                entry["reason"] = "manual_review_required"
-                self._save_candidates(entries)
-                self._append_event("candidate_pending_review", candidate_id=identifier)
-                return _json_value(entry)
-
-            entry["approved_by"] = "auto:deterministic-router"
-            self._promote_entry(entry, entries, active_pipeline)
+            entry["status"] = "pending_review"
+            entry["reason"] = "manual_review_required"
+            self._save_candidates(entries)
+            self._append_event(
+                "candidate_pending_review",
+                candidate_id=identifier,
+                source=entry["source"],
+            )
             return _json_value(entry)
 
     @staticmethod
@@ -855,6 +883,8 @@ class CorpusLearningService:
                 "data_manifest_version": entry["data_manifest_version"],
                 "outcome": entry["outcome"],
                 "result_checksum": entry["result_checksum"],
+                "tables": entry.get("tables", []),
+                "data_provenance": entry.get("data_provenance", {}),
             },
         }
 
@@ -876,6 +906,8 @@ class CorpusLearningService:
             data_manifest_version=entry["data_manifest_version"],
             outcome=entry["outcome"],
             result_checksum=entry["result_checksum"],
+            tables=tuple(entry.get("tables", ())),
+            data_provenance=dict(entry.get("data_provenance", {})),
             validation={"intent": entry["intent"], **entry["validation"]},
         )
         corpus = load_corpus(self.corpus_path)
@@ -937,6 +969,8 @@ class CorpusLearningService:
             "candidate_promoted",
             candidate_id=entry["id"],
             corpus_version=result.version,
+            reviewer=entry.get("approved_by", ""),
+            note=entry.get("review_note", ""),
             reload_errors=reload_errors,
         )
 
@@ -946,12 +980,14 @@ class CorpusLearningService:
         *,
         approve: bool,
         reviewer: str,
+        note: str = "",
         pipeline: Text2SQLPipeline | None = None,
     ) -> dict[str, Any]:
-        """Approve or reject a validated online-LLM candidate."""
+        """Approve or reject any validated candidate after human review."""
         reviewer = deidentify(reviewer).strip()
         if not reviewer:
             raise ValueError("reviewer 不可為空。")
+        note = deidentify(note).strip()
         with self._workspace_transaction():
             active_pipeline = self._active_pipeline(pipeline)
             document = self._candidate_document()
@@ -962,6 +998,7 @@ class CorpusLearningService:
             if entry["status"] != "pending_review":
                 raise ValueError("candidate_not_pending_review")
             entry["approved_by"] = reviewer
+            entry["review_note"] = note
             entry["updated_at"] = _now()
             if not approve:
                 entry["status"] = "rejected"
@@ -972,6 +1009,7 @@ class CorpusLearningService:
                     candidate_id=candidate_id,
                     reason="manual_rejection",
                     reviewer=reviewer,
+                    note=note,
                 )
                 return _json_value(entry)
 
@@ -1016,7 +1054,9 @@ class CorpusLearningService:
                     "ignored": states["ignored"],
                 },
                 "policy": {
-                    "auto_promote_source": "router",
+                    "auto_promote_source": None,
+                    "manual_review_required": True,
+                    "router_requires_review": True,
                     "llm_requires_review": True,
                     "maximum_retrieval_drop": self.maximum_retrieval_drop,
                 },

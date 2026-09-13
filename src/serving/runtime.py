@@ -399,6 +399,24 @@ class RuntimeManager:
             self._active_runtime = candidate
             return candidate
 
+    def get_runtime_for_database(
+        self,
+        database: Path,
+        mode: RuntimeMode | None = None,
+    ) -> ServiceRuntime:
+        """Pin one request to ``database`` and select its mode atomically.
+
+        Data-version publication and per-request mode selection are separate
+        operations.  Holding the manager lock across both prevents a concurrent
+        publisher from changing the process-wide runtime between those two steps.
+        The returned :class:`ServiceRuntime` remains an immutable request snapshot
+        even when a later request switches the manager to another database.
+        """
+
+        with self._lock:
+            self.switch_database(database)
+            return self.get_runtime(mode)
+
     def runtime_and_status(
         self,
         mode: RuntimeMode | None = None,
@@ -484,3 +502,54 @@ class RuntimeManager:
         with self._lock:
             self.configure(mode=mode, model=model, api_key=api_key)
             return self.status()
+
+    def switch_database(self, database: Path) -> ServiceRuntime:
+        """Atomically move future queries to a newly built database snapshot.
+
+        A complete runtime is constructed before any manager state changes. Existing
+        requests retain their immutable ``ServiceRuntime`` and can therefore finish
+        against the previous SQLite file while later requests use the new version.
+        """
+
+        target = Path(database).resolve()
+        with self._lock:
+            if target == self._database:
+                return self._active_runtime
+
+            self._drop_stale_online_runtime()
+            key, _source = self._current_credential()
+            if (
+                key is None
+                and self._active_runtime.mode == "online"
+                and self._active_runtime.source == "injected"
+            ):
+                raise RuntimeError("注入式線上執行環境沒有可重建的憑證，無法切換資料庫。")
+
+            # This is the rollback boundary: build_runtime opens and validates the
+            # new semantic layer before the active pointer or caches are mutated.
+            candidate = build_runtime(
+                database=target,
+                root=self._root,
+                mode=self._default_mode,
+                model=self._model,
+                api_key=self._api_key,
+            )
+
+            self._database = target
+            self._offline_runtime = candidate if candidate.mode == "offline" else None
+            self._online_runtime = candidate if candidate.mode == "online" else None
+            self._online_signature = (
+                (candidate.model, candidate.credential_fingerprint)
+                if candidate.mode == "online" and candidate.credential_fingerprint is not None
+                else None
+            )
+            self._provider = candidate.provider
+            self._active_runtime = candidate
+            return candidate
+
+    def switch_database_and_status(self, database: Path) -> dict[str, object]:
+        """Switch the active snapshot and return a UI-safe state summary."""
+
+        with self._lock:
+            runtime = self.switch_database(database)
+            return {**self.status(), "database": runtime.database.name}
