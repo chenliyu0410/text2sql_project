@@ -25,6 +25,12 @@ def test_health_stats_and_static_frontend(client: TestClient) -> None:
     assert "PowerQuery TW" in home.text
     assert "default-src 'self'" in home.headers["content-security-policy"]
 
+    stylesheet = client.get("/static/app.css")
+    assert stylesheet.status_code == 200
+    assert ".chart > svg" in stylesheet.text
+    assert ".chart svg {" not in stylesheet.text
+    assert ".plotly-chart .main-svg { position: absolute" in stylesheet.text
+
     health = client.get("/api/health").json()
     assert health["success"] is True
     assert health["data_range"] == {"start": "2025-01-01", "end": "2026-07-31"}

@@ -14,7 +14,18 @@
 
 ## 進行中
 
-- 無。README 與系統規格定義的 Phase 0～7 已完成；線上 LLM 實測仍需有效的 `OPENAI_API_KEY`，不影響離線規則模式與 E2E 驗收。
+- CP-010：擴充操作側欄、離線／OpenAI API 模式設定，以及可調閱的自動語料治理流程。
+
+## CP-009 — Plotly 圖示與畫布樣式修復
+
+- 時間：2026-09-13 15:30 +08:00
+- 狀態：已完成
+- 根因：`.chart svg` 後代 selector 誤中 Plotly modebar 的內部 SVG，把相機、分享與縮放圖示強制放大為至少 620×260px；嚴格 CSP 同時阻擋 Plotly 以 CSSOM 注入的版面規則，使三張 overlay SVG 在文件流中垂直堆疊。
+- 修正：fallback 圖改用 `.chart > svg`；Plotly 容器固定 320px，並在本機 stylesheet 以 `.plotly-chart` scope 補齊必要的 overlay 與 modebar 規則，沒有放寬 `style-src` CSP。
+- 瀏覽器驗收：實際執行「2026年7月20日出力前五名機組」，正常顯示 5 根長條與資料表；圖表／主 SVG 均為 820×320px 左右，三張主 SVG 全為 absolute overlay，8 個 modebar icons 均為 16×16px。
+- 回歸保護：靜態端點測試明確禁止 `.chart svg {`，並要求 direct-child fallback selector 與 Plotly absolute overlay 規則存在。
+- 自動驗收：`ruff format --check .`、`ruff check .`、`node --check src/serving/static/app.js`、`pytest -q` 全數通過（65 passed）。
+- 回退方式：回退 `fix: scope plotly svg styles` 這個 commit；CP-001～008 與使用者原有變更保持不動。
 
 ## CP-008 — Phase 7 API、CLI 與對話式呈現層
 
