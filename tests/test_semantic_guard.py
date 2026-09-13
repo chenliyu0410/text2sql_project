@@ -8,6 +8,7 @@ import pytest
 
 from align.crosswalk import parse_crosswalk
 from align.pitfalls import generate_pitfalls
+from eval.cases import SEMANTIC_NEGATIVE_CONTROLS
 from text2sql.entities import extract_entities
 from text2sql.llm import GeneratedQuery
 from text2sql.semantic_guard import SemanticGuard, load_semantic_context
@@ -44,34 +45,12 @@ def test_trap_benchmark_hit_rate_is_at_least_ninety_five_percent(
 def test_safe_question_false_positive_rate_is_at_most_five_percent(
     semantic_guard: SemanticGuard,
 ) -> None:
-    safe = (
-        "2026年7月20日全部機組尖峰出力合計",
-        "2025年台中#1平均尖峰出力",
-        "台中#1裝置容量_萬瓩與尖峰出力_萬瓩比值",
-        "水力機組總裝置容量",
-        "風力彙總尖峰出力",
-        "其他小水力2026年7月20日出力",
-        "氣渦輪單日尖峰出力",
-        "台中發電廠具名機組清單",
-        "查台中發電廠台中#1的出力",
-        "大潭2025年最高出力",
-        "大林#1歲修排程",
-        "立霧2025年零出力幾天",
-        "台中#1在2025年沒有出力的日數",
-        "興達4號機2025年最高出力",
-        "興達複循環彙總六月出力",
-        "2025年1月1日系統尖峰負載",
-        "2026年7月31日備轉容量率",
-        "同一天所有機組尖峰出力合計",
-        "各燃料裝置容量瓩總和",
-        "2026年6月尖峰出力萬瓩平均",
-    )
     blocked = 0
-    for question in safe:
+    for question in SEMANTIC_NEGATIVE_CONTROLS:
         entities = extract_entities(question, reference_date=date(2026, 7, 31))
         decision = semantic_guard.check_question(question, entities)
         blocked += decision.severity in {"refuse", "clarify", "disclose"}
-    assert blocked / len(safe) <= 0.05
+    assert blocked / len(SEMANTIC_NEGATIVE_CONTROLS) <= 0.05
 
 
 def test_sql_shape_blocks_cross_date_sum_but_allows_same_day(

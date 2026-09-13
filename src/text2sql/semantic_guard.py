@@ -225,8 +225,8 @@ class SemanticGuard:
         if (
             entities.date_range
             and (
-                entities.date_range.start < self.data_range[0]
-                or entities.date_range.end > self.data_range[1]
+                entities.date_range.end < self.data_range[0]
+                or entities.date_range.start > self.data_range[1]
             )
             or "資料開始日前一天" in compact
         ):
@@ -248,13 +248,17 @@ class SemanticGuard:
             return SemanticDecision()
 
         for aggregate in tree.find_all(exp.Sum):
-            columns = {column.name for column in aggregate.find_all(exp.Column)}
+            summed = aggregate.this
             grouped_by_date = any(
                 column.name == "日期"
                 for group in tree.find_all(exp.Group)
                 for column in group.find_all(exp.Column)
             )
-            if "尖峰出力_萬瓩" in columns and not (grouped_by_date or entities.explicit_date):
+            if (
+                isinstance(summed, exp.Column)
+                and summed.name == "尖峰出力_萬瓩"
+                and not (grouped_by_date or entities.explicit_date)
+            ):
                 return self._decision(
                     "refuse",
                     "PEAK_SUM_ACROSS_DAYS",

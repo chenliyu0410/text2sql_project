@@ -76,3 +76,35 @@ def resolve_peak_column(question: str, columns: set[str]) -> AliasResolution:
                 if candidate in columns:
                     return AliasResolution(candidate, (candidate,))
     return AliasResolution(None, ())
+
+
+def resolve_peak_columns(question: str, columns: set[str]) -> tuple[str, ...]:
+    """Resolve multiple comparison targets while preserving mention order."""
+
+    matches: list[tuple[int, str]] = []
+    for column in columns:
+        position = question.find(column)
+        if position >= 0:
+            matches.append((position, column))
+            continue
+        base = re.sub(r"\s*\(.*", "", column)
+        if base and base in question and "(" in column and "彙總" in question:
+            matches.append((question.find(base), column))
+
+    numbered = list(re.finditer(r"(台中|林口|大林|興達)\s*#?(\d{1,2})", question))
+    for match in numbered:
+        candidate = f"{match.group(1)}#{int(match.group(2))}"
+        if candidate in columns:
+            matches.append((match.start(), candidate))
+    if numbered:
+        prefix = numbered[-1].group(1)
+        for match in re.finditer(r"[和與及、]\s*#?(\d{1,2})", question):
+            candidate = f"{prefix}#{int(match.group(1))}"
+            if candidate in columns:
+                matches.append((match.start(), candidate))
+
+    unique: list[str] = []
+    for _position, column in sorted(set(matches)):
+        if column not in unique:
+            unique.append(column)
+    return tuple(unique)

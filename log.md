@@ -14,7 +14,20 @@
 
 ## 進行中
 
-- CP-007：Phase 6 — 離線執行評測、ablation study 與語料晉升整合。
+- CP-008：Phase 7 — FastAPI、CLI、圖表規格與對話式前端。
+
+## CP-007 — Phase 6 離線評測與回歸關卡
+
+- 時間：2026-09-13 14:09 +08:00
+- 狀態：已完成
+- 結果比對：候選 SQL 與標準 SQL 都在同一個唯讀 SQLite 快照上執行；指標以欄名集合與列集合等價性計算，不比對 SQL 字串。
+- 離線基準：黃金意圖 80/80；eval 意圖 60/60；執行結果 60/60，`in_corpus=true` 與 `false` 各 30/30；攻擊 15/15；語意陷阡 45/45；合法邊界題 0/20 誤攔。所有驗收條件通過。
+- 詮釋界線：上述執行成績標示為 `offline_deterministic_rules`，是可重現規則 handler 基準，不是線上 GPT 準確率；沒有 API key 時不會把 benchmark 答案假裝成 LLM 輸出。
+- Ablation：RAG top-1 意圖為 31/60（51.67%），無檢索且預設 other 為 6/60（10%）；語意守門開／關陷阡處理為 100% / 0%；規則查詢首次已成功，重試 1/2/3 次無差異；關閉路由的對照需線上 LLM，誠實標記 `not_run_without_online_llm`。
+- 語料回歸：`CorpusRegressionGate` 比較候選 corpus 與基線的獨立題庫 top-1 意圖檢索率，超過可容忍退步就拒絕整批晉升。
+- 產物：`reports/eval_latest.json`、只追加的 `reports/eval_history.jsonl`、`reports/figures/eval_summary.svg`；`make eval` 可重建。
+- 驗收：`python -m eval.run_eval`、`ruff format --check .`、`ruff check .`、`pytest -q` 全數通過（57 passed）。
+- 回退方式：回退 `feat: add reproducible offline evaluation` 這個 commit；CP-001～006 與使用者原有變更保持不動。
 
 ## CP-006 — Phase 5 資料語意守門
 

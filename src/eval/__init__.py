@@ -1,1 +1,1 @@
-"""Offline evaluation and ablation tools."""
+"""Offline evaluation utilities for PowerQuery TW."""

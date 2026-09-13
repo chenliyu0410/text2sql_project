@@ -165,7 +165,7 @@ def extract_top_n(question: str) -> int | None:
     match = re.search(rf"前\s*({NUMBER_TOKEN})", question)
     if not match:
         match = re.search(
-            rf"(?:最大|最小|最高|最低)(?:的)?\s*({NUMBER_TOKEN})(?:名|欄|個)",
+            rf"(?:最大|最小|最高|最低)(?:的)?\s*({NUMBER_TOKEN})(?:名|欄|個|台)",
             question,
         )
     return _number(match.group(1)) if match else None

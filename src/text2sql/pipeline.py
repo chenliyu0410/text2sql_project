@@ -61,6 +61,7 @@ class Text2SQLPipeline:
         corpus_path: Any,
         data_range: tuple[str, str],
         peak_columns: set[str],
+        plants: set[str] | None = None,
         semantic_guard: SemanticGuardProtocol | None = None,
         max_attempts: int = 3,
         top_k: int = 5,
@@ -74,6 +75,7 @@ class Text2SQLPipeline:
         self.retriever = TfidfRetriever(self.corpus["examples"])
         self.data_range = data_range
         self.peak_columns = peak_columns
+        self.plants = plants or set()
         self.semantic_guard = semantic_guard or AllowAllSemanticGuard()
         self.max_attempts = max_attempts
         self.top_k = top_k
@@ -115,7 +117,13 @@ class Text2SQLPipeline:
             return self._semantic_error(question_decision, trace)
 
         started = perf_counter()
-        routed = route(question, entities, peak_columns=self.peak_columns)
+        routed = route(
+            question,
+            entities,
+            peak_columns=self.peak_columns,
+            plants=self.plants,
+            data_range=self.data_range,
+        )
         self._trace(trace, "route", started, intent=routed.intent, matched=bool(routed.sql))
         retrieved = []
         if not routed.sql:
