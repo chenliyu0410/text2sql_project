@@ -1,0 +1,359 @@
+"""Deterministic question- and SQL-level semantic safety rules."""
+
+from __future__ import annotations
+
+import json
+import re
+import sqlite3
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Protocol
+
+from sqlglot import exp, parse_one
+from sqlglot.errors import ParseError
+
+from text2sql.aliases import resolve_peak_column
+from text2sql.entities import Entities
+from text2sql.llm import GeneratedQuery
+
+
+@dataclass(frozen=True)
+class SemanticDecision:
+    severity: str = "pass"
+    code: str = "OK"
+    reason: str = ""
+    suggestions: tuple[str, ...] = ()
+    evidence: dict[str, Any] = field(default_factory=dict)
+
+
+class PitfallLike(Protocol):
+    code: str
+    target_kind: str
+    target_name: str
+    severity: str
+    reason: str
+    suggestion: str
+    evidence: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class SemanticPitfall:
+    code: str
+    target_kind: str
+    target_name: str
+    severity: str
+    reason: str
+    suggestion: str
+    evidence: dict[str, Any]
+
+
+def load_semantic_context(database: Path) -> tuple[tuple[str, str], list[SemanticPitfall]]:
+    """Load the dynamic date range and alignment-derived rules from SQLite."""
+
+    uri = f"{database.resolve().as_uri()}?mode=ro"
+    with sqlite3.connect(uri, uri=True) as connection:
+        start, end = connection.execute(
+            "SELECT data_start, data_end FROM meta_manifest WHERE id = 1"
+        ).fetchone()
+        rows = connection.execute(
+            """SELECT pitfall_code, target_kind, target_name, severity,
+                      reason, suggestion, evidence
+               FROM meta_pitfall ORDER BY id"""
+        ).fetchall()
+    pitfalls = [
+        SemanticPitfall(
+            code, kind, name or "", severity, reason, suggestion or "", json.loads(data)
+        )
+        for code, kind, name, severity, reason, suggestion, data in rows
+    ]
+    return (start, end), pitfalls
+
+
+class SemanticGuard:
+    def __init__(
+        self,
+        *,
+        data_range: tuple[str, str],
+        peak_columns: set[str],
+        pitfalls: list[PitfallLike] | tuple[PitfallLike, ...] = (),
+    ):
+        self.data_range = data_range
+        self.peak_columns = peak_columns
+        self.pitfalls = tuple(pitfalls)
+
+    @classmethod
+    def from_database(cls, database: Path, *, peak_columns: set[str]) -> SemanticGuard:
+        data_range, pitfalls = load_semantic_context(database)
+        return cls(data_range=data_range, peak_columns=peak_columns, pitfalls=pitfalls)
+
+    @staticmethod
+    def _decision(
+        severity: str,
+        code: str,
+        reason: str,
+        *suggestions: str,
+        evidence: dict[str, Any] | None = None,
+    ) -> SemanticDecision:
+        return SemanticDecision(severity, code, reason, suggestions, evidence or {})
+
+    def _targets(self, code: str) -> tuple[PitfallLike, ...]:
+        return tuple(item for item in self.pitfalls if item.code == code)
+
+    @staticmethod
+    def _target_in_question(target: str, question: str) -> bool:
+        simplified = re.sub(r"\s|\([^)]*\)|發電廠$", "", target)
+        return bool(simplified and simplified in question)
+
+    def check_question(self, question: str, entities: Entities) -> SemanticDecision:
+        compact = re.sub(r"\s+", "", question)
+
+        sum_words = ("總和", "加起來", "合計", "相加", "累計", "發電量")
+        cross_date_words = ("去年", "今年", "每天", "所有日期", "跨月", "跨月份")
+        same_day = any(word in compact for word in ("同一天", "當日", "單日"))
+        if (
+            any(word in compact for word in sum_words)
+            and any(word in compact for word in cross_date_words)
+            and not same_day
+        ):
+            return self._decision(
+                "refuse",
+                "PEAK_SUM_ACROSS_DAYS",
+                "尖峰出力是單一時刻的功率，跨日加總不是發電量。",
+                "改問指定期間的最高、最低或平均尖峰出力。",
+                "如需發電量，必須改用具有時間積分意義的其他資料源。",
+                evidence={"metric": "尖峰出力_萬瓩", "shape": "cross-date sum"},
+            )
+
+        unit_mismatch = (
+            ("尖峰出力" in compact and "裝置容量瓩" in compact)
+            or ("萬瓩" in compact and "容量瓩" in compact)
+            or ("萬瓩" in compact and "瓩容量" in compact)
+            or "不同功率單位" in compact
+            or "未換算單位" in compact
+        )
+        if unit_mismatch:
+            return self._decision(
+                "refuse",
+                "UNIT_MISMATCH",
+                "裝置容量「瓩」與尖峰出力「萬瓩」相差 10,000 倍，不可直接運算。",
+                "改用裝置容量_萬瓩與尖峰出力_萬瓩比較。",
+                evidence={"units": ["瓩", "萬瓩"]},
+            )
+
+        unsupported = ("風力", "風光", "IPP", "ipp", "核能", "太陽能", "汽電共生")
+        detail_words = ("每一台", "各機組", "機組主檔", "每部設備", "單機", "明細")
+        if any(word in compact for word in unsupported) and any(
+            word in compact for word in detail_words
+        ):
+            return self._decision(
+                "refuse",
+                "NO_UNIT_DETAIL",
+                "現有機組主檔不含該類別的單機明細。",
+                "改查可用的類別彙總出力。",
+                evidence={"unsupported_scope": "unit detail"},
+            )
+
+        trend_words = ("趨勢", "同比", "年增率", "近兩年", "去年和今年", "每月長期", "跨期", "走勢")
+        residual_rules = self._targets("RESIDUAL_TREND")
+        residual_hit = (
+            any(self._target_in_question(rule.target_name, compact) for rule in residual_rules)
+            or "殘差欄" in compact
+        )
+        if residual_hit and any(word in compact for word in trend_words):
+            rule = next(
+                (
+                    item
+                    for item in residual_rules
+                    if self._target_in_question(item.target_name, compact)
+                ),
+                None,
+            )
+            return self._decision(
+                "refuse",
+                "RESIDUAL_TREND",
+                rule.reason if rule else "殘差欄組成可能隨版本漂移，不適合跨期趨勢。",
+                rule.suggestion if rule else "改查單日值或粒度穩定的具名機組。",
+                evidence=rule.evidence if rule else {"target": "residual"},
+            )
+
+        total_words = ("完整", "全廠", "所有機組合計", "總出力", "總計")
+        for rule in self._targets("PLANT_TOTAL_INCOMPLETE"):
+            if self._target_in_question(rule.target_name, compact) and any(
+                word in compact for word in total_words
+            ):
+                return self._decision(
+                    "disclose",
+                    rule.code,
+                    rule.reason,
+                    rule.suggestion,
+                    evidence={"target": rule.target_name, **rule.evidence},
+                )
+
+        capacity_words = ("容量", "ratio", "實測", "對帳")
+        for rule in self._targets("KNOWN_CAPACITY_GAP"):
+            if self._target_in_question(rule.target_name, compact) and any(
+                word in compact for word in capacity_words
+            ):
+                return self._decision(
+                    "disclose",
+                    rule.code,
+                    rule.reason,
+                    rule.suggestion,
+                    evidence={"target": rule.target_name, **rule.evidence},
+                )
+
+        zero_words = ("零出力", "沒有出力", "零值", "有值幾天", "等於零")
+        if entities.date_range is None and any(word in compact for word in zero_words):
+            return self._decision(
+                "disclose",
+                "ZERO_PERIOD_AMBIGUOUS",
+                "零出力會隨資料期間改變，未指定期間時只能以目前全部資料計算。",
+                "請指定年份、月份或日期範圍。",
+                evidence={"default_range": list(self.data_range)},
+            )
+
+        resolution = resolve_peak_column(compact, self.peak_columns)
+        if resolution.ambiguous:
+            return self._decision(
+                "clarify",
+                "AMBIGUOUS_UNIT_NAME",
+                "機組名稱可對應多個資料欄位，不會自行猜測。",
+                "請說明要查具名燃煤機組，還是複循環彙總欄。",
+                evidence={"candidates": list(resolution.candidates)},
+            )
+
+        if (
+            entities.date_range
+            and (
+                entities.date_range.start < self.data_range[0]
+                or entities.date_range.end > self.data_range[1]
+            )
+            or "資料開始日前一天" in compact
+        ):
+            return self._decision(
+                "clarify",
+                "DATA_RANGE_OUT_OF_BOUNDS",
+                "問句的日期超出目前資料涵蓋範圍。",
+                f"請改查 {self.data_range[0]} 至 {self.data_range[1]} 之間。",
+                evidence={"available_range": list(self.data_range)},
+            )
+        return SemanticDecision()
+
+    def check_sql(
+        self, question: str, query: GeneratedQuery, entities: Entities
+    ) -> SemanticDecision:
+        try:
+            tree = parse_one(query.sql, read="sqlite")
+        except ParseError:
+            return SemanticDecision()
+
+        for aggregate in tree.find_all(exp.Sum):
+            columns = {column.name for column in aggregate.find_all(exp.Column)}
+            grouped_by_date = any(
+                column.name == "日期"
+                for group in tree.find_all(exp.Group)
+                for column in group.find_all(exp.Column)
+            )
+            if "尖峰出力_萬瓩" in columns and not (grouped_by_date or entities.explicit_date):
+                return self._decision(
+                    "refuse",
+                    "PEAK_SUM_ACROSS_DAYS",
+                    "SQL 將尖峰時刻的瞬時功率跨日加總，結果沒有發電量意義。",
+                    "改用 MAX、MIN 或 AVG，或限制在單一日期。",
+                    evidence={"function": "SUM", "column": "尖峰出力_萬瓩"},
+                )
+
+        for operation in tree.find_all(exp.Binary):
+            columns = {column.name for column in operation.find_all(exp.Column)}
+            if {"裝置容量_瓩", "尖峰出力_萬瓩"} <= columns:
+                return self._decision(
+                    "refuse",
+                    "UNIT_MISMATCH",
+                    "SQL 在同一算式混用瓩與萬瓩。",
+                    "將裝置容量換成萬瓩後再運算。",
+                    evidence={"columns": sorted(columns)},
+                )
+
+        all_columns = {column.name for column in tree.find_all(exp.Column)}
+        string_params = tuple(str(param) for param in query.params if isinstance(param, str))
+        unsupported = ("風力", "風光", "IPP", "ipp", "核能", "太陽能", "汽電共生")
+        asks_for_unit_detail = bool({"機組名", "機組欄位"} & all_columns)
+        if asks_for_unit_detail and any(
+            category in value for category in unsupported for value in string_params
+        ):
+            return self._decision(
+                "refuse",
+                "NO_UNIT_DETAIL",
+                "SQL 試圖將只有彙總粒度的類別當成單機明細查詢。",
+                "改查類別彙總出力。",
+                evidence={"params": list(string_params)},
+            )
+
+        trend_words = ("趨勢", "同比", "年增率", "近兩年", "長期", "跨期", "走勢")
+        residual_filter = "是殘差欄" in all_columns and (
+            bool(re.search(r'"是殘差欄"\s*=\s*1(?:\D|$)', query.sql)) or 1 in query.params
+        )
+        if residual_filter and any(word in question for word in trend_words):
+            return self._decision(
+                "refuse",
+                "RESIDUAL_TREND",
+                "SQL 對組成可能漂移的殘差欄進行跨期趨勢分析。",
+                "改查單日值或粒度穩定的具名機組。",
+                evidence={"filter": "是殘差欄 = 1"},
+            )
+
+        group_columns = {
+            column.name
+            for group in tree.find_all(exp.Group)
+            for column in group.find_all(exp.Column)
+        }
+        incomplete_rules = self._targets("PLANT_TOTAL_INCOMPLETE")
+        if "電廠" in group_columns and incomplete_rules:
+            affected = [
+                rule
+                for rule in incomplete_rules
+                if not string_params
+                or any(self._target_in_question(rule.target_name, value) for value in string_params)
+            ]
+            if affected:
+                return self._decision(
+                    "disclose",
+                    "PLANT_TOTAL_INCOMPLETE",
+                    "電廠彙總包含無法從全系統殘差欄拆回的機組，部分廠別結果不完整。",
+                    "改查具名機組，或在結果中保留此限制。",
+                    evidence={"affected": [rule.target_name for rule in affected]},
+                )
+
+        capacity_columns = {"對應裝置容量_萬瓩", "裝置容量_萬瓩", "裝置容量_瓩"}
+        if capacity_columns & all_columns:
+            for rule in self._targets("KNOWN_CAPACITY_GAP"):
+                if self._target_in_question(rule.target_name, question) or any(
+                    self._target_in_question(rule.target_name, value) for value in string_params
+                ):
+                    return self._decision(
+                        "disclose",
+                        rule.code,
+                        rule.reason,
+                        rule.suggestion,
+                        evidence={"target": rule.target_name, **rule.evidence},
+                    )
+
+        question_decision = self.check_question(question, entities)
+        if question_decision.code != "OK":
+            return question_decision
+
+        where = tree.args.get("where")
+        if where is not None:
+            where_columns = {column.name for column in where.find_all(exp.Column)}
+            has_zero_filter = bool(
+                re.search(r'"尖峰出力_萬瓩"\s*(?:=|>)\s*0(?:\D|$)', query.sql)
+            ) or ("尖峰出力_萬瓩" in where_columns and 0 in query.params)
+            if has_zero_filter and "日期" not in where_columns:
+                return self._decision(
+                    "disclose",
+                    "ZERO_PERIOD_AMBIGUOUS",
+                    "SQL 的零出力篩選沒有限制日期範圍。",
+                    "請指定日期範圍。",
+                    evidence={"available_range": list(self.data_range)},
+                )
+        return SemanticDecision()

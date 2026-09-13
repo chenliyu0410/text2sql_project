@@ -13,18 +13,10 @@ from text2sql.llm import GeneratedQuery, LLMProtocol, parse_generated_query
 from text2sql.prompt import build_prompt
 from text2sql.retriever import TfidfRetriever
 from text2sql.router import route
+from text2sql.semantic_guard import SemanticDecision
 from text2sql.sql_guard import SqlGuard, SqlGuardResult
 
 RunSql = Callable[[str, tuple[object, ...]], tuple[list[str], list[tuple[object, ...]]]]
-
-
-@dataclass(frozen=True)
-class SemanticDecision:
-    severity: str = "pass"
-    code: str = "OK"
-    reason: str = ""
-    suggestions: tuple[str, ...] = ()
-    evidence: dict[str, Any] = field(default_factory=dict)
 
 
 class SemanticGuardProtocol(Protocol):
@@ -188,8 +180,9 @@ class Text2SQLPipeline:
                 continue
             self._trace(trace, "execute", started, attempt=attempt, record_count=len(rows))
             disclosures = []
+            disclosed_codes: set[str] = set()
             for decision in (question_decision, semantic):
-                if decision.severity == "disclose":
+                if decision.severity == "disclose" and decision.code not in disclosed_codes:
                     disclosures.append(
                         {
                             "code": decision.code,
@@ -197,6 +190,7 @@ class Text2SQLPipeline:
                             "evidence": decision.evidence,
                         }
                     )
+                    disclosed_codes.add(decision.code)
             return PipelineResponse(
                 True,
                 data={

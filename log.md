@@ -14,7 +14,19 @@
 
 ## 進行中
 
-- CP-006：Phase 5 — 資料語意守門與三種嚴重度。
+- CP-007：Phase 6 — 離線執行評測、ablation study 與語料晉升整合。
+
+## CP-006 — Phase 5 資料語意守門
+
+- 時間：2026-09-13 13:52 +08:00
+- 狀態：已完成
+- 雙層判斷：在生成前檢查問句可答性，在執行前再以 `sqlglot` AST 檢查真實 SQL 形狀；所有結果都是結構化 `code`、`severity`、說明、建議與 evidence。
+- 規則：完成 `PEAK_SUM_ACROSS_DAYS`、`UNIT_MISMATCH`、`NO_UNIT_DETAIL`、`RESIDUAL_TREND`、`PLANT_TOTAL_INCOMPLETE`、`KNOWN_CAPACITY_GAP`、`ZERO_PERIOD_AMBIGUOUS`、`AMBIGUOUS_UNIT_NAME`、`DATA_RANGE_OUT_OF_BOUNDS` 九條守門。
+- 分級：`refuse` 與 `clarify` 不執行 SQL；`disclose` 可繼續查詢但必須隨結果回傳限制。同一規則在問句層與 SQL 層同時命中時只揭露一次。
+- 動態資料：資料期間從 `meta_manifest` 讀取；殘差欄、電廠總量不完整與容量缺口對象從 `meta_pitfall` 讀取，查詢層不重複寫死清單。
+- 邊界檢查：單日跨機組加總、同單位容量比較、殘差欄單日值、具明確期間的零出力等 20 個反例均放行。
+- 驗收：陷阡題 45/45 命中（100%，要求 ≥ 95%）；20 個合法邊界反例 0 誤攔（0%，要求 ≤ 5%）；`ruff format --check .`、`ruff check .`、`pytest -q` 全數通過（52 passed）。
+- 回退方式：回退 `feat: add data-aware semantic guardrails` 這個 commit；CP-001～005 與使用者原有變更保持不動。
 
 ## CP-005 — Phase 4 Text2SQL 管線
 

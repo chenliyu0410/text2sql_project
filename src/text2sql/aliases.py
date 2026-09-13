@@ -37,6 +37,12 @@ def resolve_plant(question: str, plants: set[str]) -> AliasResolution:
 
 
 def resolve_peak_column(question: str, columns: set[str]) -> AliasResolution:
+    ambiguous_hsinta = re.search(r"興達\s*#?\s*(?:3|(?:第)?三)(?:號|機|部|相關|是|的|\b)", question)
+    if ambiguous_hsinta:
+        candidates = tuple(column for column in ("興達#3", "興達 (#1-#5)") if column in columns)
+        if len(candidates) > 1:
+            return AliasResolution(None, candidates, True)
+
     exact = tuple(
         sorted((column for column in columns if column in question), key=len, reverse=True)
     )
@@ -55,11 +61,18 @@ def resolve_peak_column(question: str, columns: set[str]) -> AliasResolution:
         if candidate in columns:
             return AliasResolution(candidate, (candidate,))
 
-    chinese = re.search(r"(台中|林口)\s*([一二三四五六七八九十]+)號", question)
+    chinese = re.search(
+        r"(台中|林口|大林|興達)\s*(?:第)?([一二三四五六七八九十]+)(?:號|部)", question
+    )
     if chinese:
         for number in range(1, 13):
             if chinese.group(2) == chinese_number(number):
                 candidate = f"{chinese.group(1)}#{number}"
+                if chinese.group(1) == "興達" and number == 3:
+                    candidates = tuple(
+                        column for column in ("興達#3", "興達 (#1-#5)") if column in columns
+                    )
+                    return AliasResolution(None, candidates, True)
                 if candidate in columns:
                     return AliasResolution(candidate, (candidate,))
     return AliasResolution(None, ())
