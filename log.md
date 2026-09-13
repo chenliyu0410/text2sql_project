@@ -4,13 +4,15 @@
 
 ## CP-011 — 台電資料 GitHub Release
 
-- 時間：2026-09-13 16:43 +08:00
-- 狀態：資料包準備完成，等待 GitHub Release 上傳。
+- 時間：2026-09-13 16:43 +08:00；公開完成：2026-09-13 16:46 +08:00
+- 狀態：已完成
+- Release：https://github.com/chenliyu0410/text2sql_project/releases/tag/taipower-data-2026-09-13
+- Git tag：`taipower-data-2026-09-13`，指向 `da749ad6f93eae7d949b47e1d291c690a0e4cb29`。
 - 目標：`taipower-data-2026-09-13`／「台電開放資料與 PowerQuery 資料包（2026-09-13）」。
 - 資產：完整原始開放資料、PowerQuery 可直接查詢資料、專案文件三個 ZIP，另附 `SHA256SUMS.txt`；詳細成員、大小與 checksum 見 `docs/releases/taipower-data-2026-09-13.md`。
 - 安全邊界：排除含真實電號或機構名稱的參考筆記、`.powerquery-learning` 本機學習工作區、查詢紀錄、語料事件、憑證、虛擬環境與快取。每包都附台灣電力公司顯名、OGL 1.0、非即時資料與精確基礎設施位置提醒。
-- 驗證：三包 CRC 通過；中文檔名保留；原始包 204 個資源與 manifest 逐筆一致；三個 ZIP 的 SHA-256 已重算一致。
-- 回退方式：此準備點只提交發行清單與進度紀錄，不把大型資產加入 Git；GitHub 發布前可直接放棄暫存資產，且不影響 CP-001～010 或使用者原有變更。
+- 驗證：三包 CRC 通過；中文檔名保留；原始包 204 個資源與 manifest 逐筆一致；三個 ZIP 的 SHA-256 已重算一致。GitHub 回報四個 asset 均為 `uploaded`，三個 ZIP 的遠端 byte 大小與 SHA-256 digest 和本機完全相同。
+- 回退方式：先從 GitHub Release 管理介面刪除 `taipower-data-2026-09-13` Release 與 tag，再回退 `chore: prepare Taipower data release` 及本筆完成紀錄 commit；大型資產未加入 Git，CP-001～010 與使用者原有變更保持不動。
 
 ## CP-000 — 實作前基線
 
