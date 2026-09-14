@@ -1,0 +1,421 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content">
+  <meta name="description" content="以自然語言安全查詢、管理與追蹤台電開放資料語料">
+  <title>查詢中心｜PowerQuery TW</title>
+  <link rel="stylesheet" href="/static/app.css">
+  <link rel="stylesheet" href="/static/styles.css">
+  <script src="https://cdn.plot.ly/plotly-basic-4.0.0.min.js"
+          integrity="sha384-pob47bLDprs//iBIQpGg2VYPBbDGMuH6Fyu26Rdf2XvV5y78KBv8pT1xS/5MhP/8"
+          crossorigin="anonymous" defer></script>
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar" tabindex="-1" aria-label="PowerQuery 工作導覽">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">P</span>
+        <div><strong>PowerQuery TW</strong><span>台電資料智慧分析台</span></div>
+        <button class="sidebar-close" id="sidebarClose" type="button" aria-label="關閉導覽">×</button>
+      </div>
+
+      <div class="connection" role="status">
+        <span class="status-dot" id="statusDot" aria-hidden="true"></span>
+        <span id="statusText">正在連線…</span>
+      </div>
+      <div class="demo-banner" id="demoBanner" role="note" hidden>目前使用離線規則模式；固定分析可直接執行，長尾問題需切換線上 API。</div>
+
+      <nav class="primary-nav" aria-label="主要功能">
+        <button class="nav-item" type="button" data-view="query" aria-current="page">
+          <span class="nav-icon" aria-hidden="true">⌕</span><span><strong>查詢中心</strong><small>用白話分析資料</small></span>
+        </button>
+        <button class="nav-item" type="button" data-view="overview">
+          <span class="nav-icon" aria-hidden="true">▦</span><span><strong>資料總覽</strong><small>涵蓋範圍與常用分析</small></span>
+        </button>
+        <button class="nav-item" type="button" data-view="data">
+          <span class="nav-icon" aria-hidden="true">◎</span><span><strong>資料管理</strong><small>資料檔、語料、版本與稽核</small></span>
+        </button>
+        <button class="nav-item" type="button" data-view="settings">
+          <span class="nav-icon" aria-hidden="true">⚙</span><span><strong>API 與模型</strong><small>離線／線上執行設定</small></span>
+        </button>
+        <button class="nav-item" type="button" data-view="docs">
+          <span class="nav-icon code-icon" aria-hidden="true">{ }</span><span><strong>API 文件</strong><small>端點與請求格式</small></span>
+        </button>
+      </nav>
+
+      <section class="sidebar-section" aria-labelledby="sidebarActionsTitle">
+        <div class="section-heading"><h2 id="sidebarActionsTitle">常用分析</h2></div>
+        <div class="side-action-group">
+          <p>系統供需</p>
+          <button type="button" data-question="2026年7月備轉容量率最低是哪一天？">最低備轉容量率</button>
+          <button type="button" data-question="2026年7月20日出力前五名機組">尖峰出力排行</button>
+        </div>
+        <div class="side-action-group">
+          <p>設備與歲修</p>
+          <button type="button" data-question="列出台中發電廠所有設備">電廠設備清單</button>
+          <button type="button" data-question="2026年三月有哪些機組在歲修？">月份歲修查詢</button>
+        </div>
+      </section>
+
+      <section class="sidebar-section history-section" aria-labelledby="historyTitle">
+        <div class="section-heading">
+          <h2 id="historyTitle">最近查詢</h2>
+          <button class="text-button" id="clearHistory" type="button">清除</button>
+        </div>
+        <div class="query-history" id="queryHistory"><p class="side-empty">尚無查詢紀錄</p></div>
+        <p class="privacy-note">只在此瀏覽器保存非敏感問題文字，不保存查詢結果、API key 或命中敏感格式的問句。</p>
+      </section>
+
+      <footer>資料來源：台灣電力公司開放資料</footer>
+    </aside>
+
+    <button class="sidebar-backdrop" id="sidebarBackdrop" type="button" aria-label="關閉導覽" hidden></button>
+
+    <main class="main" id="appMain">
+      <header class="topbar">
+        <button class="nav-toggle" id="navToggle" type="button" aria-controls="sidebar" aria-expanded="false" aria-label="開啟導覽">☰</button>
+        <div class="topbar-title">
+          <h1 id="pageTitle">查詢中心</h1>
+          <p id="pageSubtitle">安全地把自然語言轉成可追溯資料答案</p>
+        </div>
+        <button class="mode-shortcut" id="modeShortcut" type="button" aria-label="前往 API 與模型設定">
+          <span class="mode-dot" aria-hidden="true"></span><span id="activeModeLabel">讀取模式…</span>
+        </button>
+      </header>
+
+      <div class="workspace" id="workspace">
+        <section class="view-panel query-view" id="queryView" data-panel="query" aria-labelledby="queryHeading">
+          <div class="query-intro">
+            <div>
+              <p class="eyebrow">QUERY WORKSPACE</p>
+              <h2 id="queryHeading" tabindex="-1">今天想分析哪一段電力資料？</h2>
+              <p>從常用分析開始，或直接用完整句子提問。每次答案都會附 SQL、資料限制與原始列。</p>
+            </div>
+            <div class="trust-list" aria-label="查詢保障">
+              <span>唯讀 SQL</span><span>語意守門</span><span>結果可追溯</span>
+            </div>
+          </div>
+
+          <section class="analysis-launcher" aria-labelledby="quickAnalysisTitle">
+            <div class="content-heading">
+              <div><p class="eyebrow">快速開始</p><h3 id="quickAnalysisTitle">常用分析情境</h3></div>
+              <p>選擇後會立即執行，也可在下方自行輸入問句。</p>
+            </div>
+            <div class="analysis-grid" id="examples">
+              <button class="analysis-card" type="button" data-question="2026年6月每日備轉容量率">
+                <span class="analysis-icon blue" aria-hidden="true">↗</span><strong>供需趨勢</strong><small>查看每日備轉容量率走勢</small>
+              </button>
+              <button class="analysis-card" type="button" data-question="天然氣機組共有幾台？">
+                <span class="analysis-icon green" aria-hidden="true">▤</span><strong>設備盤點</strong><small>依燃料或電廠統計機組</small>
+              </button>
+              <button class="analysis-card" type="button" data-question="2026年三月有哪些機組在歲修？">
+                <span class="analysis-icon amber" aria-hidden="true">◷</span><strong>歲修排程</strong><small>調閱指定期間的維護紀錄</small>
+              </button>
+            </div>
+          </section>
+
+          <section class="conversation" id="conversation" aria-label="查詢對話" aria-live="off">
+            <article class="welcome-message">
+              <div class="assistant-avatar" aria-hidden="true">P</div>
+              <div>
+                <strong>分析工作台已就緒</strong>
+                <p>我會先確認問題是否能由現有資料回答，再產生唯讀 SQL。遇到資料缺口、跨日功率誤加或歧義名稱時會先說明。</p>
+              </div>
+            </article>
+          </section>
+
+          <form class="composer" id="queryForm">
+            <label class="sr-only" for="queryInput">輸入電力資料問題</label>
+            <textarea id="queryInput" rows="1" maxlength="500" placeholder="例如：2026 年 7 月備轉容量率最低是哪一天？" required></textarea>
+            <div class="composer-actions">
+              <label class="mode-select-label" for="queryScope"><span class="sr-only">這次查詢的資料範圍</span>
+                <select id="queryScope" aria-label="這次查詢的資料範圍">
+                  <option value="auto">自動（可信優先）</option>
+                  <option value="trusted">僅可信資料</option>
+                  <option value="raw">全量原始資料</option>
+                </select>
+              </label>
+              <label class="mode-select-label" for="executionMode"><span class="sr-only">這次查詢的執行模式</span>
+                <select id="executionMode" aria-label="這次查詢的執行模式">
+                  <option value="">沿用預設模式</option>
+                  <option value="offline">離線規則</option>
+                  <option value="online">線上 API</option>
+                  <option value="auto">自動判斷</option>
+                </select>
+              </label>
+              <button class="send-button" id="sendButton" type="submit">查詢</button>
+            </div>
+          </form>
+        </section>
+
+        <section class="view-panel" id="overviewView" data-panel="overview" aria-labelledby="overviewHeading" hidden>
+          <header class="page-heading">
+            <div><p class="eyebrow">DATA OVERVIEW</p><h2 id="overviewHeading" tabindex="-1">資料涵蓋與分析入口</h2><p>先掌握目前可查的期間與資料量，再從主題卡片開始分析。</p></div>
+            <button class="secondary-button" type="button" id="refreshOverview">重新整理</button>
+          </header>
+
+          <div class="metric-grid" aria-label="資料涵蓋統計">
+            <article class="metric-card"><span class="metric-icon blue" aria-hidden="true">▥</span><div><p>尖峰事實資料</p><strong id="totalRecords">—</strong><small>逐機組、逐日紀錄</small></div></article>
+            <article class="metric-card"><span class="metric-icon green" aria-hidden="true">▧</span><div><p>機組主檔</p><strong id="totalUnits">—</strong><small>設備與電廠資訊</small></div></article>
+            <article class="metric-card"><span class="metric-icon amber" aria-hidden="true">◫</span><div><p>歲修紀錄</p><strong id="outageRecords">—</strong><small>維修起訖與機組</small></div></article>
+            <article class="metric-card"><span class="metric-icon violet" aria-hidden="true">◷</span><div><p>資料期間</p><strong id="dateRange">—</strong><small>目前資料庫涵蓋</small></div></article>
+          </div>
+
+          <div class="dashboard-grid">
+            <section class="surface span-two" aria-labelledby="analysisCatalogTitle">
+              <div class="content-heading"><div><p class="eyebrow">ANALYSIS CATALOG</p><h3 id="analysisCatalogTitle">分析主題</h3></div><p>選擇後會帶回查詢中心執行。</p></div>
+              <div class="catalog-grid">
+                <button class="catalog-card" type="button" data-question="2026年7月每日備轉容量率"><span class="catalog-mark blue" aria-hidden="true">01</span><span><strong>備轉容量趨勢</strong><small>依日期比較供電餘裕與最低點</small></span><span aria-hidden="true">→</span></button>
+                <button class="catalog-card" type="button" data-question="2026年7月20日出力前五名機組"><span class="catalog-mark green" aria-hidden="true">02</span><span><strong>機組尖峰排行</strong><small>比較指定日期的機組出力</small></span><span aria-hidden="true">→</span></button>
+                <button class="catalog-card" type="button" data-question="列出台中發電廠所有設備"><span class="catalog-mark violet" aria-hidden="true">03</span><span><strong>電廠設備清冊</strong><small>用名稱、燃料或類型盤點設備</small></span><span aria-hidden="true">→</span></button>
+                <button class="catalog-card" type="button" data-question="2026年三月有哪些機組在歲修？"><span class="catalog-mark amber" aria-hidden="true">04</span><span><strong>歲修期間檢索</strong><small>交叉查看機組與維修區間</small></span><span aria-hidden="true">→</span></button>
+              </div>
+            </section>
+
+            <section class="surface" aria-labelledby="dataRulesTitle">
+              <div class="content-heading"><div><p class="eyebrow">GUARDRAILS</p><h3 id="dataRulesTitle">資料解讀守則</h3></div></div>
+              <ul class="check-list">
+                <li><span aria-hidden="true">✓</span><div><strong>功率不是電量</strong><p>不同日期的尖峰 MW 不直接相加。</p></div></li>
+                <li><span aria-hidden="true">✓</span><div><strong>揭露資料缺口</strong><p>結果會標記期間或欄位限制。</p></div></li>
+                <li><span aria-hidden="true">✓</span><div><strong>保留查詢依據</strong><p>每筆答案皆可展開查看 SQL。</p></div></li>
+              </ul>
+            </section>
+          </div>
+        </section>
+
+        <section class="view-panel" id="dataView" data-panel="data" aria-labelledby="dataHeading" hidden>
+          <header class="page-heading">
+            <div><p class="eyebrow">DATA MANAGEMENT</p><h2 id="dataHeading" tabindex="-1">資料、語料與版本治理</h2><p>上傳或停用資料檔、人工核准異動與語料，並追蹤每一次資料庫版本。</p></div>
+            <button class="secondary-button" type="button" id="refreshDataManagement" hidden>同步最新狀態</button>
+          </header>
+
+          <section class="surface admin-login-card" id="dataAuthGate" aria-labelledby="dataLoginTitle">
+            <div class="admin-login-copy">
+              <span class="login-mark" aria-hidden="true">◇</span>
+              <div><p class="eyebrow">AUTHORIZED ACCESS</p><h3 id="dataLoginTitle">登入資料管理</h3><p>管理操作會留下審核人員與異動紀錄。密碼只送往本機服務，不會儲存在瀏覽器。</p></div>
+            </div>
+            <form id="dataLoginForm" class="admin-login-form">
+              <label class="field"><span>帳號</span><input id="adminUsername" name="username" type="text" value="admin" maxlength="80" autocomplete="username" required></label>
+              <label class="field"><span>密碼</span><span class="password-field"><input id="adminPassword" name="password" type="password" maxlength="256" autocomplete="current-password" required><button id="toggleAdminPassword" type="button" aria-label="顯示管理密碼">顯示</button></span></label>
+              <button class="primary-button" id="dataLoginButton" type="submit">登入管理介面</button>
+            </form>
+            <div class="inline-feedback" id="dataLoginFeedback" role="alert" hidden></div>
+          </section>
+
+          <div id="dataManagementContent" hidden>
+            <section class="surface management-session" aria-label="管理登入狀態">
+              <div><span class="status-dot online" aria-hidden="true"></span><span>已登入：</span><strong id="dataSessionUser">—</strong></div>
+              <button class="text-button" id="dataLogout" type="button">登出</button>
+            </section>
+            <div class="credential-warning" id="defaultCredentialWarning" role="note" hidden>目前仍使用示範用預設帳密；正式部署前請用環境變數替換。</div>
+
+            <div class="metric-grid management-metrics" aria-label="資料管理摘要">
+              <article class="metric-card compact"><div><p>啟用資料檔</p><strong id="activeDatasetCount">—</strong></div></article>
+              <article class="metric-card compact"><div><p>待審資料異動</p><strong id="pendingChangeCount">—</strong></div></article>
+              <article class="metric-card compact"><div><p>待審語料</p><strong id="pendingCorpusCount">—</strong></div></article>
+              <article class="metric-card compact"><div><p>作用中 DB 版本</p><strong id="activeDatabaseVersion">—</strong></div></article>
+            </div>
+
+            <div class="management-tabs" role="tablist" aria-label="資料管理功能">
+              <button id="dataTabFiles" class="management-tab" type="button" role="tab" aria-selected="true" aria-controls="dataFilesPanel" tabindex="0" data-management-tab="files">資料檔</button>
+              <button id="dataTabChanges" class="management-tab" type="button" role="tab" aria-selected="false" aria-controls="dataChangesPanel" tabindex="-1" data-management-tab="changes">待審異動 <span class="tab-count" id="dataChangesBadge">0</span></button>
+              <button id="dataTabCorpus" class="management-tab" type="button" role="tab" aria-selected="false" aria-controls="dataCorpusPanel" tabindex="-1" data-management-tab="corpus">語料審查 <span class="tab-count" id="corpusPendingBadge">0</span></button>
+              <button id="dataTabVersions" class="management-tab" type="button" role="tab" aria-selected="false" aria-controls="dataVersionsPanel" tabindex="-1" data-management-tab="versions">DB 版本</button>
+              <button id="dataTabAudit" class="management-tab" type="button" role="tab" aria-selected="false" aria-controls="dataAuditPanel" tabindex="-1" data-management-tab="audit">稽核紀錄</button>
+            </div>
+
+            <section class="management-panel" id="dataFilesPanel" role="tabpanel" aria-labelledby="dataTabFiles" tabindex="0" data-management-panel="files">
+              <div class="data-work-grid">
+                <section class="surface management-card" aria-labelledby="datasetUploadTitle">
+                  <div class="content-heading"><div><p class="eyebrow">STAGE DATA</p><h3 id="datasetUploadTitle">上傳新增或替換 CSV</h3></div></div>
+                  <form id="datasetUploadForm" class="management-form">
+                    <label class="field"><span>資料槽</span><select id="datasetName" name="dataset" required><option value="">選擇要新增或替換的資料槽</option></select><small>已啟用的資料槽會建立替換異動；目前缺少的選用資料槽會建立新增異動。</small></label>
+                    <label class="upload-dropzone" for="datasetFileInput"><span class="upload-icon" aria-hidden="true">⇧</span><strong>選擇 CSV 資料檔</strong><small id="datasetFileName">尚未選擇檔案（上限 64 MB）</small><input id="datasetFileInput" name="file" type="file" accept=".csv,text/csv" required></label>
+                    <label class="field"><span>異動原因</span><textarea id="datasetChangeReason" name="reason" rows="3" maxlength="500" placeholder="說明新增或替換原因，供人工審核與稽核使用" required></textarea></label>
+                    <progress id="datasetUploadProgress" class="upload-progress" aria-label="CSV 處理進度" hidden></progress>
+                    <div class="form-actions"><button class="primary-button" id="stageDatasetUpload" type="submit">上傳並送審</button></div>
+                  </form>
+                  <div class="inline-feedback" id="datasetUploadFeedback" role="status" hidden></div>
+                </section>
+
+                <section class="surface management-card" aria-labelledby="datasetFilesTitle">
+                  <div class="content-heading"><div><p class="eyebrow">ACTIVE SOURCES</p><h3 id="datasetFilesTitle">資料檔清單</h3></div><span class="result-count" id="datasetResultCount">—</span></div>
+                  <div class="form-actions"><a class="secondary-button" id="queryLogDownload" href="/api/data/query-errors" download>下載查詢診斷 Log</a></div>
+                  <div class="filter-bar">
+                    <label><span class="sr-only">搜尋資料檔</span><input type="search" id="datasetSearch" placeholder="搜尋資料集、檔名或版本…"></label>
+                    <label><span class="sr-only">依資料檔狀態篩選</span><select id="datasetStateFilter"><option value="all">全部狀態</option><option value="active">已啟用</option><option value="inactive">已停用</option><option value="pending">有待審異動</option></select></label>
+                  </div>
+                  <div class="management-list" id="datasetFiles" aria-live="polite"><div class="empty-state">正在讀取資料檔…</div></div>
+                </section>
+              </div>
+            </section>
+
+            <section class="management-panel" id="dataChangesPanel" role="tabpanel" aria-labelledby="dataTabChanges" tabindex="0" data-management-panel="changes" hidden>
+              <section class="surface management-card" aria-labelledby="dataChangesTitle">
+                <div class="content-heading"><div><p class="eyebrow">CHANGE REVIEW</p><h3 id="dataChangesTitle">資料異動審查</h3></div><span class="result-count" id="dataChangeResultCount">—</span></div>
+                <div class="filter-bar">
+                  <label><span class="sr-only">搜尋資料異動</span><input type="search" id="dataChangeSearch" placeholder="搜尋資料集、檔名或提出者…"></label>
+                  <label><span class="sr-only">依異動狀態篩選</span><select id="dataChangeStateFilter"><option value="all">全部狀態</option><option value="pending">待人工審核</option><option value="active">已核准套用</option><option value="inactive">已拒絕／失敗</option></select></label>
+                </div>
+                <div class="management-list" id="dataChanges" aria-live="polite"><div class="empty-state">正在讀取待審異動…</div></div>
+              </section>
+            </section>
+
+            <section class="management-panel" id="dataCorpusPanel" role="tabpanel" aria-labelledby="dataTabCorpus" tabindex="0" data-management-panel="corpus" hidden>
+              <section class="training-card" aria-labelledby="trainingTitle">
+                <div class="training-state"><span class="training-pulse" id="trainingPulse" aria-hidden="true"></span><div><p class="eyebrow">GOVERNED LEARNING</p><h3 id="trainingTitle">語料治理</h3><strong id="trainingStatus">讀取中…</strong></div></div>
+                <dl class="training-facts">
+                  <div><dt>學習工作區</dt><dd id="trainingAuto">—</dd></div>
+                  <div><dt>已發布範例</dt><dd id="trainingIndexed">—</dd></div>
+                  <div><dt>驗證／審核中</dt><dd id="trainingPending">—</dd></div>
+                  <div><dt>語料版本</dt><dd id="trainingUpdated">—</dd></div>
+                </dl>
+                <div class="training-progress" id="trainingProgressWrap" hidden><div class="progress-label"><span>處理進度</span><strong id="trainingProgressText">0%</strong></div><progress id="trainingProgress" max="100" value="0">0%</progress></div>
+                <p class="training-policy" id="trainingPolicy">所有候選都必須通過驗證與人工審核才會發布。</p>
+              </section>
+
+              <div class="metric-grid corpus-metrics" aria-label="語料統計">
+                <article class="metric-card compact"><div><p>學習候選總數</p><strong id="corpusTotal">—</strong></div></article>
+                <article class="metric-card compact"><div><p>已核准發布</p><strong id="corpusActive">—</strong></div></article>
+                <article class="metric-card compact"><div><p>驗證／審核中</p><strong id="corpusPending">—</strong></div></article>
+                <article class="metric-card compact"><div><p>語料異動事件</p><strong id="corpusEventCount">—</strong></div></article>
+              </div>
+
+              <section class="surface corpus-browser management-card" aria-labelledby="corpusListTitle">
+                <div class="content-heading"><div><p class="eyebrow">CORPUS REVIEW</p><h3 id="corpusListTitle">語料內容與來源</h3></div><span class="result-count" id="corpusResultCount">—</span></div>
+                <div class="filter-bar">
+                  <label><span class="sr-only">搜尋語料</span><input type="search" id="corpusSearch" placeholder="搜尋問句、意圖或資料來源…"></label>
+                  <label><span class="sr-only">依狀態篩選</span><select id="corpusStateFilter"><option value="all">全部狀態</option><option value="active">已核准發布</option><option value="pending">待人工審核</option><option value="inactive">停用／拒絕</option></select></label>
+                </div>
+                <div class="corpus-list" id="corpusEntries" aria-live="polite"><div class="empty-state">正在讀取語料…</div></div>
+              </section>
+              <ol class="sr-only" id="corpusEvents" aria-label="語料異動事件"></ol>
+            </section>
+
+            <section class="management-panel" id="dataVersionsPanel" role="tabpanel" aria-labelledby="dataTabVersions" tabindex="0" data-management-panel="versions" hidden>
+              <section class="surface management-card" aria-labelledby="databaseVersionsTitle">
+                <div class="content-heading"><div><p class="eyebrow">IMMUTABLE VERSIONS</p><h3 id="databaseVersionsTitle">資料庫版本</h3><p>核准異動會建立新版本並原子切換；既有版本保留以便追溯。</p></div><span class="result-count" id="databaseVersionCount">—</span></div>
+                <div class="management-list" id="databaseVersions" aria-live="polite"><div class="empty-state">正在讀取資料庫版本…</div></div>
+              </section>
+            </section>
+
+            <section class="management-panel" id="dataAuditPanel" role="tabpanel" aria-labelledby="dataTabAudit" tabindex="0" data-management-panel="audit" hidden>
+              <section class="surface management-card" aria-labelledby="auditEventsTitle">
+                <div class="content-heading"><div><p class="eyebrow">AUDIT TRAIL</p><h3 id="auditEventsTitle">完整稽核紀錄</h3></div><span class="result-count" id="auditEventCount">—</span></div>
+                <div class="audit-filter-bar">
+                  <label><span class="sr-only">搜尋稽核紀錄</span><input type="search" id="auditSearch" placeholder="搜尋人員、動作、資料集或版本…"></label>
+                  <label><span class="sr-only">依稽核結果篩選</span><select id="auditResultFilter"><option value="all">全部結果</option><option value="success">成功</option><option value="pending">待處理</option><option value="failed">失敗／拒絕</option></select></label>
+                </div>
+                <ol class="audit-list" id="auditEvents" aria-live="polite"><li class="empty-state">正在讀取稽核紀錄…</li></ol>
+              </section>
+            </section>
+          </div>
+        </section>
+
+        <section class="view-panel" id="settingsView" data-panel="settings" aria-labelledby="settingsHeading" hidden>
+          <header class="page-heading"><div><p class="eyebrow">RUNTIME SETTINGS</p><h2 id="settingsHeading" tabindex="-1">API 與模型執行模式</h2><p>離線版使用本機規則處理可重現題型；線上版將長尾問題交給已設定的模型。</p></div></header>
+
+          <div class="settings-layout">
+            <section class="surface settings-form-card" aria-labelledby="runtimeFormTitle">
+              <div class="content-heading"><div><p class="eyebrow">EXECUTION MODE</p><h3 id="runtimeFormTitle">選擇預設模式</h3></div><span class="status-badge" id="runtimeSaveStatus">尚未變更</span></div>
+              <form id="runtimeForm">
+                <fieldset class="mode-options">
+                  <legend class="sr-only">預設執行模式</legend>
+                  <label class="mode-option"><input type="radio" name="runtimeMode" value="auto"><span class="mode-option-icon auto" aria-hidden="true">A</span><span><strong>自動判斷</strong><small>有可用金鑰時走線上，否則安全回到離線規則。</small></span><span class="radio-check" aria-hidden="true">✓</span></label>
+                  <label class="mode-option"><input type="radio" name="runtimeMode" value="offline"><span class="mode-option-icon offline" aria-hidden="true">◉</span><span><strong>離線規則</strong><small>不傳送資料到外部服務，適合固定且已驗證的題型。</small></span><span class="radio-check" aria-hidden="true">✓</span></label>
+                  <label class="mode-option"><input type="radio" name="runtimeMode" value="online"><span class="mode-option-icon online" aria-hidden="true">↗</span><span><strong>線上 API</strong><small>使用模型理解長尾問題；需要有效的 API key。</small></span><span class="radio-check" aria-hidden="true">✓</span></label>
+                </fieldset>
+
+                <div class="form-grid">
+                  <label class="field"><span>模型名稱</span><input id="modelInput" name="model" type="text" maxlength="120" placeholder="例如：gpt-5.4-mini" autocomplete="off"><small>留空會沿用後端目前設定。</small></label>
+                  <label class="field"><span>API key</span><span class="password-field"><input id="apiKeyInput" name="api_key" type="password" maxlength="512" placeholder="只在需要新增或替換時輸入" autocomplete="new-password"><button id="toggleApiKey" type="button" aria-label="顯示 API key">顯示</button></span><small>只送往本機後端；不會寫入 localStorage 或顯示既有 key。首次啟用線上 adapter 前，請先執行 uv sync --extra online。</small></label>
+                </div>
+                <div class="form-actions">
+                  <button class="secondary-button" id="clearRuntimeKey" type="button">清除記憶體金鑰並切離線</button>
+                  <button class="primary-button" id="saveRuntime" type="submit">套用執行設定</button>
+                </div>
+              </form>
+              <div class="inline-feedback" id="runtimeFeedback" role="status" hidden></div>
+            </section>
+
+            <aside class="surface runtime-summary" aria-labelledby="runtimeSummaryTitle">
+              <div class="content-heading"><div><p class="eyebrow">CURRENT RUNTIME</p><h3 id="runtimeSummaryTitle">目前環境</h3></div></div>
+              <dl class="summary-list">
+                <div><dt>作用中模式</dt><dd id="summaryActiveMode">—</dd></div>
+                <div><dt>預設模式</dt><dd id="summaryDefaultMode">—</dd></div>
+                <div><dt>線上 API</dt><dd id="summaryOnlineConfigured">—</dd></div>
+                <div><dt>供應商</dt><dd id="summaryProvider">—</dd></div>
+                <div><dt>模型</dt><dd id="summaryModel">—</dd></div>
+              </dl>
+              <div class="capability-note"><strong>離線能力</strong><p id="offlineCapability">讀取中…</p></div>
+              <div class="security-note"><span aria-hidden="true">◇</span><p><strong>金鑰處理原則</strong><br>瀏覽器不保存 API key。重新載入後，輸入欄位永遠保持空白。</p></div>
+            </aside>
+          </div>
+        </section>
+
+        <section class="view-panel" id="docsView" data-panel="docs" aria-labelledby="docsHeading" hidden>
+          <header class="page-heading"><div><p class="eyebrow">DEVELOPER API</p><h2 id="docsHeading" tabindex="-1">API 文件與接線範例</h2><p>所有查詢與管理功能都能透過相同的本機 HTTP API 使用。</p></div><a class="secondary-button" href="/docs" target="_blank" rel="noopener">開啟互動文件</a></header>
+
+          <div class="docs-layout">
+            <nav class="surface endpoint-index" aria-label="API 端點索引">
+              <p class="eyebrow">ENDPOINTS</p>
+              <a href="#docsQuery"><span class="method post">POST</span><code>/api/query</code></a>
+              <a href="#docsRuntime"><span class="method get">GET</span><code>/api/runtime/llm</code></a>
+              <a href="#docsRuntime"><span class="method put">PUT</span><code>/api/runtime/llm</code></a>
+              <a href="#docsDataManagement"><span class="method get">GET</span><code>/api/data/*</code></a>
+              <a href="#docsCorpus"><span class="method get">GET</span><code>/api/corpus/entries</code></a>
+              <a href="#docsEvents"><span class="method get">GET</span><code>/api/corpus/events</code></a>
+              <a href="#docsReview"><span class="method post">POST</span><code>/api/corpus/entries/{id}/review</code></a>
+              <a href="#docsTraining"><span class="method get">GET</span><code>/api/training-status</code></a>
+            </nav>
+
+            <div class="docs-content">
+              <section class="surface doc-section" id="docsQuery"><div class="endpoint-title"><span class="method post">POST</span><div><h3>/api/query</h3><p>執行自然語言查詢，可逐次指定離線或線上模式。</p></div></div><pre><code>{
+  "question": "2026年7月備轉容量率最低是哪一天？",
+  "execution_mode": "offline"
+}</code></pre><p class="doc-note">成功回應包含 SQL、欄位、列資料、圖表規格、統計與語意揭露。</p></section>
+
+              <section class="surface doc-section" id="docsRuntime"><div class="endpoint-title"><span class="method put">PUT</span><div><h3>/api/runtime/llm</h3><p>查看或切換預設執行模式。只有更新金鑰時才需傳 <code>api_key</code>。</p></div></div><pre><code>{
+  "mode": "online",
+  "model": "gpt-5.4-mini",
+  "api_key": "&lt;只傳給本機後端&gt;"
+}</code></pre></section>
+
+              <section class="surface doc-section" id="docsDataManagement"><div class="endpoint-title"><span class="method get">GET</span><div><h3>/api/data/status · changes · versions · events</h3><p>登入後調閱作用中資料檔、待審異動、不可變資料庫版本與完整稽核鏈；上傳、停用與審核端點均需 <code>X-PowerQuery-CSRF</code>。</p></div></div></section>
+
+              <section class="surface doc-section" id="docsCorpus"><div class="endpoint-title"><span class="method get">GET</span><div><h3>/api/corpus/entries?state=all</h3><p>登入管理工作階段後，調閱語料、審核狀態與不可變的來源資料檔紀錄。</p></div></div></section>
+              <section class="surface doc-section" id="docsEvents"><div class="endpoint-title"><span class="method get">GET</span><div><h3>/api/corpus/events?limit=100</h3><p>調閱去識別的候選建立、驗證、審核、發布與工作區升版事件。</p></div></div></section>
+              <section class="surface doc-section" id="docsReview"><div class="endpoint-title"><span class="method post">POST</span><div><h3>/api/corpus/entries/{id}/review</h3><p>由登入人員核准或拒絕待審候選；審核身份由伺服器 session 決定，mutation 需附 CSRF header。</p></div></div><pre><code>{
+  "decision": "approve",
+  "note": "已核對 SQL、來源資料檔與驗證結果"
+}</code></pre></section>
+              <section class="surface doc-section" id="docsTraining"><div class="endpoint-title"><span class="method get">GET</span><div><h3>/api/training-status</h3><p>取得索引進度、待處理數量與最近訓練時間；進行中時介面會自動更新。</p></div></div></section>
+              <section class="surface response-contract" aria-labelledby="responseContractTitle"><h3 id="responseContractTitle">統一回應格式</h3><div class="contract-grid"><div><strong>成功</strong><code>{ "success": true, "data": { … } }</code></div><div><strong>業務拒答</strong><code>{ "success": false, "error": "…" }</code></div></div></section>
+            </div>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <dialog class="detail-dialog" id="corpusDialog" aria-labelledby="corpusDialogTitle">
+    <div class="dialog-head"><div><p class="eyebrow">CORPUS REVIEW</p><h2 id="corpusDialogTitle">語料與來源資料</h2></div><button class="dialog-close" id="closeCorpusDialog" type="button" aria-label="關閉語料內容">×</button></div>
+    <div class="dialog-body" id="corpusDialogBody"></div>
+  </dialog>
+
+  <dialog class="detail-dialog" id="datasetDialog" aria-labelledby="datasetDialogTitle">
+    <div class="dialog-head"><div><p class="eyebrow">DATA SOURCE</p><h2 id="datasetDialogTitle">資料檔內容</h2></div><button class="dialog-close" id="closeDatasetDialog" type="button" aria-label="關閉資料檔內容">×</button></div>
+    <div class="dialog-body" id="datasetDialogBody"></div>
+  </dialog>
+
+  <dialog class="detail-dialog" id="dataChangeDialog" aria-labelledby="dataChangeDialogTitle">
+    <div class="dialog-head"><div><p class="eyebrow">CHANGE REVIEW</p><h2 id="dataChangeDialogTitle">資料異動審查</h2></div><button class="dialog-close" id="closeDataChangeDialog" type="button" aria-label="關閉資料異動審查">×</button></div>
+    <div class="dialog-body" id="dataChangeDialogBody"></div>
+  </dialog>
+
+  <div class="sr-only" id="srStatus" role="status" aria-live="polite"></div>
+  <div class="sr-only" id="srAlert" role="alert" aria-live="assertive"></div>
+</body>
+</html>

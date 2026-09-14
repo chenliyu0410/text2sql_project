@@ -1,0 +1,362 @@
+[
+  {
+    "id": "trap-peak_sum_across_days-1",
+    "question": "台中一號機去年尖峰出力總和",
+    "expect": {
+      "code": "PEAK_SUM_ACROSS_DAYS",
+      "severity": "refuse"
+    }
+  },
+  {
+    "id": "trap-peak_sum_across_days-2",
+    "question": "把林口#2每天出力加起來當發電量",
+    "expect": {
+      "code": "PEAK_SUM_ACROSS_DAYS",
+      "severity": "refuse"
+    }
+  },
+  {
+    "id": "trap-peak_sum_across_days-3",
+    "question": "大潭今年累計發電量多少",
+    "expect": {
+      "code": "PEAK_SUM_ACROSS_DAYS",
+      "severity": "refuse"
+    }
+  },
+  {
+    "id": "trap-peak_sum_across_days-4",
+    "question": "求2025年所有日期的機組輸出合計",
+    "expect": {
+      "code": "PEAK_SUM_ACROSS_DAYS",
+      "severity": "refuse"
+    }
+  },
+  {
+    "id": "trap-peak_sum_across_days-5",
+    "question": "跨月份相加德基尖峰功率",
+    "expect": {
+      "code": "PEAK_SUM_ACROSS_DAYS",
+      "severity": "refuse"
+    }
+  },
+  {
+    "id": "trap-unit_mismatch-1",
+    "question": "尖峰出力除以裝置容量瓩",
+    "expect": {
+      "code": "UNIT_MISMATCH",
+      "severity": "refuse"
+    }
+  },
+  {
+    "id": "trap-unit_mismatch-2",
+    "question": "用萬瓩出力減去瓩容量",
+    "expect": {
+      "code": "UNIT_MISMATCH",
+      "severity": "refuse"
+    }
+  },
+  {
+    "id": "trap-unit_mismatch-3",
+    "question": "直接比較裝置容量瓩和尖峰功率萬瓩",
+    "expect": {
+      "code": "UNIT_MISMATCH",
+      "severity": "refuse"
+    }
+  },
+  {
+    "id": "trap-unit_mismatch-4",
+    "question": "把兩種不同功率單位放進同一公式",
+    "expect": {
+      "code": "UNIT_MISMATCH",
+      "severity": "refuse"
+    }
+  },
+  {
+    "id": "trap-unit_mismatch-5",
+    "question": "計算未換算單位的出力容量比",
+    "expect": {
+      "code": "UNIT_MISMATCH",
+      "severity": "refuse"
+    }
+  },
+  {
+    "id": "trap-no_unit_detail-1",
+    "question": "風力每一台機組的出力",
+    "expect": {
+      "code": "NO_UNIT_DETAIL",
+      "severity": "refuse"
+    }
+  },
+  {
+    "id": "trap-no_unit_detail-2",
+    "question": "列出IPP各機組明細",
+    "expect": {
+      "code": "NO_UNIT_DETAIL",
+      "severity": "refuse"
+    }
+  },
+  {
+    "id": "trap-no_unit_detail-3",
+    "question": "核能機組主檔細節",
+    "expect": {
+      "code": "NO_UNIT_DETAIL",
+      "severity": "refuse"
+    }
+  },
+  {
+    "id": "trap-no_unit_detail-4",
+    "question": "太陽能每部設備的尖峰出力",
+    "expect": {
+      "code": "NO_UNIT_DETAIL",
+      "severity": "refuse"
+    }
+  },
+  {
+    "id": "trap-no_unit_detail-5",
+    "question": "汽電共生單機清單",
+    "expect": {
+      "code": "NO_UNIT_DETAIL",
+      "severity": "refuse"
+    }
+  },
+  {
+    "id": "trap-residual_trend-1",
+    "question": "其他小水力近兩年趨勢",
+    "expect": {
+      "code": "RESIDUAL_TREND",
+      "severity": "refuse"
+    }
+  },
+  {
+    "id": "trap-residual_trend-2",
+    "question": "比較氣渦輪去年和今年",
+    "expect": {
+      "code": "RESIDUAL_TREND",
+      "severity": "refuse"
+    }
+  },
+  {
+    "id": "trap-residual_trend-3",
+    "question": "其他小水力年增率",
+    "expect": {
+      "code": "RESIDUAL_TREND",
+      "severity": "refuse"
+    }
+  },
+  {
+    "id": "trap-residual_trend-4",
+    "question": "氣渦輪每月長期變化",
+    "expect": {
+      "code": "RESIDUAL_TREND",
+      "severity": "refuse"
+    }
+  },
+  {
+    "id": "trap-residual_trend-5",
+    "question": "殘差欄跨期走勢",
+    "expect": {
+      "code": "RESIDUAL_TREND",
+      "severity": "refuse"
+    }
+  },
+  {
+    "id": "trap-plant_total_incomplete-1",
+    "question": "台中發電廠完整總出力",
+    "expect": {
+      "code": "PLANT_TOTAL_INCOMPLETE",
+      "severity": "disclose"
+    }
+  },
+  {
+    "id": "trap-plant_total_incomplete-2",
+    "question": "大甲溪全廠出力總計",
+    "expect": {
+      "code": "PLANT_TOTAL_INCOMPLETE",
+      "severity": "disclose"
+    }
+  },
+  {
+    "id": "trap-plant_total_incomplete-3",
+    "question": "明潭發電廠所有機組合計",
+    "expect": {
+      "code": "PLANT_TOTAL_INCOMPLETE",
+      "severity": "disclose"
+    }
+  },
+  {
+    "id": "trap-plant_total_incomplete-4",
+    "question": "東部電廠完整尖峰功率",
+    "expect": {
+      "code": "PLANT_TOTAL_INCOMPLETE",
+      "severity": "disclose"
+    }
+  },
+  {
+    "id": "trap-plant_total_incomplete-5",
+    "question": "萬大電廠總出力",
+    "expect": {
+      "code": "PLANT_TOTAL_INCOMPLETE",
+      "severity": "disclose"
+    }
+  },
+  {
+    "id": "trap-known_capacity_gap-1",
+    "question": "大潭裝置容量與出力比",
+    "expect": {
+      "code": "KNOWN_CAPACITY_GAP",
+      "severity": "disclose"
+    }
+  },
+  {
+    "id": "trap-known_capacity_gap-2",
+    "question": "大林五六號容量缺口",
+    "expect": {
+      "code": "KNOWN_CAPACITY_GAP",
+      "severity": "disclose"
+    }
+  },
+  {
+    "id": "trap-known_capacity_gap-3",
+    "question": "大潭主檔容量是否完整",
+    "expect": {
+      "code": "KNOWN_CAPACITY_GAP",
+      "severity": "disclose"
+    }
+  },
+  {
+    "id": "trap-known_capacity_gap-4",
+    "question": "比較大林彙總實測與容量",
+    "expect": {
+      "code": "KNOWN_CAPACITY_GAP",
+      "severity": "disclose"
+    }
+  },
+  {
+    "id": "trap-known_capacity_gap-5",
+    "question": "查大潭容量對帳",
+    "expect": {
+      "code": "KNOWN_CAPACITY_GAP",
+      "severity": "disclose"
+    }
+  },
+  {
+    "id": "trap-zero_period_ambiguous-1",
+    "question": "立霧有幾天零出力",
+    "expect": {
+      "code": "ZERO_PERIOD_AMBIGUOUS",
+      "severity": "disclose"
+    }
+  },
+  {
+    "id": "trap-zero_period_ambiguous-2",
+    "question": "台中#1何時沒有出力",
+    "expect": {
+      "code": "ZERO_PERIOD_AMBIGUOUS",
+      "severity": "disclose"
+    }
+  },
+  {
+    "id": "trap-zero_period_ambiguous-3",
+    "question": "大觀二零值天數",
+    "expect": {
+      "code": "ZERO_PERIOD_AMBIGUOUS",
+      "severity": "disclose"
+    }
+  },
+  {
+    "id": "trap-zero_period_ambiguous-4",
+    "question": "林口#3有值幾天",
+    "expect": {
+      "code": "ZERO_PERIOD_AMBIGUOUS",
+      "severity": "disclose"
+    }
+  },
+  {
+    "id": "trap-zero_period_ambiguous-5",
+    "question": "青山等於零的日期",
+    "expect": {
+      "code": "ZERO_PERIOD_AMBIGUOUS",
+      "severity": "disclose"
+    }
+  },
+  {
+    "id": "trap-ambiguous_unit_name-1",
+    "question": "興達三號機的出力",
+    "expect": {
+      "code": "AMBIGUOUS_UNIT_NAME",
+      "severity": "clarify"
+    }
+  },
+  {
+    "id": "trap-ambiguous_unit_name-2",
+    "question": "查興達3機",
+    "expect": {
+      "code": "AMBIGUOUS_UNIT_NAME",
+      "severity": "clarify"
+    }
+  },
+  {
+    "id": "trap-ambiguous_unit_name-3",
+    "question": "興達第三部機組資料",
+    "expect": {
+      "code": "AMBIGUOUS_UNIT_NAME",
+      "severity": "clarify"
+    }
+  },
+  {
+    "id": "trap-ambiguous_unit_name-4",
+    "question": "興達三號是燃煤還是燃氣",
+    "expect": {
+      "code": "AMBIGUOUS_UNIT_NAME",
+      "severity": "clarify"
+    }
+  },
+  {
+    "id": "trap-ambiguous_unit_name-5",
+    "question": "給我興達#3相關數字",
+    "expect": {
+      "code": "AMBIGUOUS_UNIT_NAME",
+      "severity": "clarify"
+    }
+  },
+  {
+    "id": "trap-data_range_out_of_bounds-1",
+    "question": "查2024年台中出力",
+    "expect": {
+      "code": "DATA_RANGE_OUT_OF_BOUNDS",
+      "severity": "clarify"
+    }
+  },
+  {
+    "id": "trap-data_range_out_of_bounds-2",
+    "question": "2027年一月尖峰負載",
+    "expect": {
+      "code": "DATA_RANGE_OUT_OF_BOUNDS",
+      "severity": "clarify"
+    }
+  },
+  {
+    "id": "trap-data_range_out_of_bounds-3",
+    "question": "2019年備轉容量",
+    "expect": {
+      "code": "DATA_RANGE_OUT_OF_BOUNDS",
+      "severity": "clarify"
+    }
+  },
+  {
+    "id": "trap-data_range_out_of_bounds-4",
+    "question": "2026年八月機組排行",
+    "expect": {
+      "code": "DATA_RANGE_OUT_OF_BOUNDS",
+      "severity": "clarify"
+    }
+  },
+  {
+    "id": "trap-data_range_out_of_bounds-5",
+    "question": "資料開始日前一天的系統負載",
+    "expect": {
+      "code": "DATA_RANGE_OUT_OF_BOUNDS",
+      "severity": "clarify"
+    }
+  }
+]

@@ -1,0 +1,11 @@
+ratio:
+  expected_min: 0.80
+  expected_max: 1.06
+
+categories:
+  residual_columns:
+    - 氣渦輪
+    - 其他小水力
+  bucket_columns:
+    - 離島
+

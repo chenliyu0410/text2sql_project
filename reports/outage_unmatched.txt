@@ -1,0 +1,5 @@
+source_name	status	candidates
+立霧	ambiguous	立霧#1機|立霧#2機
+大潭#8	unmatched	
+大潭#9	unmatched	
+興達新#1	unmatched	

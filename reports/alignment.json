@@ -1,0 +1,31 @@
+{
+  "status": "pass",
+  "crosswalk": {
+    "count": 43,
+    "issues": []
+  },
+  "outage": {
+    "total": 138,
+    "matched": 125,
+    "match_rate": 0.9057971014492754,
+    "status_counts": {
+      "ambiguous": 1,
+      "matched": 125,
+      "unmatched": 12
+    },
+    "unresolved_names": [
+      "大潭#8",
+      "大潭#9",
+      "立霧",
+      "興達新#1"
+    ]
+  },
+  "pitfalls": {
+    "count": 10,
+    "by_code": {
+      "KNOWN_CAPACITY_GAP": 2,
+      "PLANT_TOTAL_INCOMPLETE": 6,
+      "RESIDUAL_TREND": 2
+    }
+  }
+}
