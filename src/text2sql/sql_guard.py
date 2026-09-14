@@ -53,6 +53,13 @@ ALLOWED_COLUMNS = {
         "日期狀態",
         "對齊狀態",
     },
+    "v_generation_cost": {
+        "年度",
+        "電力來源",
+        "發電方式",
+        "成本_元每度",
+        "決算類型",
+    },
 }
 DANGEROUS_FUNCTIONS = {"load_extension", "readfile", "writefile"}
 FORBIDDEN_KEYWORDS = re.compile(

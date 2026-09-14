@@ -571,6 +571,7 @@
     card.appendChild(element("h3", "", severity));
     card.appendChild(element("p", "", payload.error || "系統目前無法完成查詢。"));
     if (payload.error_code) card.appendChild(element("div", "meta", "錯誤碼：" + payload.error_code));
+    if (payload.diagnostic_id) card.appendChild(element("div", "meta", "診斷編號：" + payload.diagnostic_id));
     var actions = element("div", "suggestions");
     (payload.suggestions || []).forEach(function (suggestion) {
       var button = element("button", "suggestion", suggestion);
@@ -593,6 +594,7 @@
     if (!question || activeController) return;
     showView("query", { focus: false });
     var selectedMode = byId("executionMode").value;
+    var selectedScope = byId("queryScope").value;
     addUserMessage(question, selectedMode || "default");
     saveQuestion(question);
     input.value = "";
@@ -602,6 +604,7 @@
     activeController = new AbortController();
     scrollLatest();
     var requestBody = { question: question };
+    requestBody.query_scope = selectedScope;
     if (selectedMode) requestBody.execution_mode = selectedMode;
     api("/api/query", {
       method: "POST",

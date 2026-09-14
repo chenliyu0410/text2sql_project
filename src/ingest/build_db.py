@@ -25,6 +25,7 @@ from ingest.validate import (
     DAILY_SYSTEM_COLUMNS,
     PROJECT_ROOT,
     parse_number,
+    parse_generation_cost_rows,
     parse_source_date,
     parse_unit_date,
     read_csv,
@@ -32,7 +33,7 @@ from ingest.validate import (
     validate_files,
 )
 
-SCHEMA_VERSION = "1"
+SCHEMA_VERSION = "2"
 
 
 class DatabasePublishError(PermissionError):
@@ -55,7 +56,20 @@ def _load_rows(paths: dict[str, Path]) -> dict[str, list[dict[str, str]]]:
         for name in ("units_csv", "daily_csv", "crosswalk_csv", "daily_long_csv")
     }
     rows["outage_csv"] = read_csv(paths["outage_csv"])[1] if paths["outage_csv"].is_file() else []
+    rows["generation_cost_csv"] = read_csv(paths["generation_cost_csv"])[1]
     return rows
+
+
+def _insert_generation_costs(
+    connection: sqlite3.Connection,
+    costs: list[dict[str, str]],
+) -> None:
+    connection.executemany(
+        """INSERT INTO fact_generation_cost
+           (source_group, generation_type, year, accounting_basis, cost_per_kwh)
+           VALUES (?, ?, ?, ?, ?)""",
+        parse_generation_cost_rows(costs),
+    )
 
 
 def _insert_plants_and_units(
@@ -296,6 +310,7 @@ def _table_counts(connection: sqlite3.Connection) -> dict[str, int]:
         "fact_daily_peak",
         "fact_daily_system",
         "dim_outage",
+        "fact_generation_cost",
         "meta_pitfall",
     )
     return {
@@ -316,6 +331,7 @@ def _database_content_checksum(connection: sqlite3.Connection) -> str:
         "fact_daily_peak",
         "fact_daily_system",
         "dim_outage",
+        "fact_generation_cost",
         "meta_pitfall",
     ):
         digest.update(table.encode())
@@ -339,6 +355,7 @@ def build_database(
             "crosswalk_csv",
             "daily_long_csv",
             "outage_csv",
+            "generation_cost_csv",
         }
         unknown_sources = set(source_paths) - allowed_sources
         if unknown_sources:
@@ -350,6 +367,7 @@ def build_database(
         paths["crosswalk_csv"],
         paths["daily_long_csv"],
         paths["outage_csv"],
+        paths["generation_cost_csv"],
     )
     rows = _load_rows(paths)
     target = target.resolve()
@@ -382,6 +400,7 @@ def build_database(
                 unit_ids,
                 overrides=_load_outage_overrides(root),
             )
+            _insert_generation_costs(connection, rows["generation_cost_csv"])
             _insert_derived_pitfalls(connection, crosswalk_records, ratio_max=upper_ratio)
 
             foreign_key_errors = connection.execute("PRAGMA foreign_key_check").fetchall()

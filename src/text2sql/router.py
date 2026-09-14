@@ -19,6 +19,8 @@ class RoutedQuery:
 
 def classify_intent(question: str) -> str:
     question = re.sub(r"\s+", "", question)
+    if "成本" in question:
+        return "generation_cost"
     system_words = ("負載", "備轉", "供電能力", "工業用電", "民生用電", "系統指標")
 
     if (
@@ -182,6 +184,36 @@ def _system_metric(question: str) -> str | None:
     )
 
 
+def _generation_cost_type(question: str) -> str | None:
+    compact = re.sub(r"\s+", "", question)
+    return next(
+        (
+            name
+            for phrase, name in (
+                ("平均發購電", "平均發購電成本"),
+                ("自發電力小計", "自發電力小計"),
+                ("購入電力小計", "購入電力小計"),
+                ("太陽光電", "太陽光電"),
+                ("慣常水力", "慣常水力"),
+                ("其他再生能源", "其他再生能源"),
+                ("汽電共生", "汽電共生"),
+                ("民營電廠", "民營電廠"),
+                ("火力", "火力發電"),
+                ("核能", "核能發電"),
+                ("抽蓄", "抽蓄發電"),
+                ("風力", "風力發電"),
+                ("地熱", "地熱"),
+                ("燃油", "燃油"),
+                ("燃煤", "燃煤"),
+                ("燃氣", "燃氣"),
+                ("再生能源", "再生能源發電"),
+            )
+            if phrase in compact
+        ),
+        None,
+    )
+
+
 def route(
     question: str,
     entities: Entities,
@@ -192,6 +224,24 @@ def route(
 ) -> RoutedQuery:
     intent = classify_intent(question)
     bounded_range = _bounded_range(entities, data_range)
+
+    if intent == "generation_cost":
+        generation_type = _generation_cost_type(question)
+        year = int(entities.date_range.start[:4]) if entities.date_range else None
+        if generation_type and year:
+            return RoutedQuery(
+                intent,
+                'SELECT "年度", "電力來源", "發電方式", "成本_元每度", "決算類型" '
+                'FROM v_generation_cost WHERE "年度" = ? AND "發電方式" = ? LIMIT 20',
+                (year, generation_type),
+            )
+        if generation_type:
+            return RoutedQuery(
+                intent,
+                'SELECT "年度", "電力來源", "發電方式", "成本_元每度", "決算類型" '
+                'FROM v_generation_cost WHERE "發電方式" = ? ORDER BY "年度" DESC LIMIT 20',
+                (generation_type,),
+            )
 
     if intent == "system_metric":
         metric = _system_metric(question)

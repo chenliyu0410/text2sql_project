@@ -7,6 +7,7 @@ import csv
 import hashlib
 import json
 import math
+import re
 from collections.abc import Iterable
 from datetime import datetime
 from pathlib import Path
@@ -63,6 +64,13 @@ DAILY_LONG_REQUIRED = {
     "confidence",
 }
 OUTAGE_REQUIRED = {"年度", "能源別", "機組名稱", "開始日期", "結束日期", "備註"}
+GENERATION_COST_LABEL = "各種發電方式之發電成本"
+GENERATION_COST_COLUMNS = {
+    "112年 審定決算(元/度)": (2023, "審定決算"),
+    "113年 審定決算(元/度)": (2024, "審定決算"),
+    "114年 自編決算(元/度)": (2025, "自編決算"),
+}
+GENERATION_COST_REQUIRED = {GENERATION_COST_LABEL, *GENERATION_COST_COLUMNS}
 
 
 class DataValidationError(ValueError):
@@ -147,6 +155,38 @@ def parse_number(value: str, *, context: str, allow_empty: bool = False) -> floa
     return number
 
 
+def parse_generation_cost_rows(
+    rows: list[dict[str, str]],
+) -> list[tuple[str, str, int, str, float]]:
+    """Normalize the annual generation-cost matrix into queryable records."""
+
+    records: list[tuple[str, str, int, str, float]] = []
+    current_group: str | None = None
+    for index, row in enumerate(rows, start=2):
+        name = re.sub(r"\s+", "", row.get(GENERATION_COST_LABEL, ""))
+        if not name:
+            raise DataValidationError(f"generation_cost.csv:{index} 發電方式不可為空")
+        values = [row.get(column, "").strip() for column in GENERATION_COST_COLUMNS]
+        if not any(values):
+            if name not in {"自發電力", "購入電力"}:
+                raise DataValidationError(f"generation_cost.csv:{index} 缺少年度成本")
+            current_group = name
+            continue
+        source_group = "整體" if name == "平均發購電成本" else current_group
+        if source_group is None:
+            raise DataValidationError(f"generation_cost.csv:{index} 缺少電力來源群組")
+        for column, (year, basis) in GENERATION_COST_COLUMNS.items():
+            cost = parse_number(row.get(column, ""), context=f"generation_cost.csv:{index}:{column}")
+            if cost is None or cost < 0:
+                raise DataValidationError(f"generation_cost.csv:{index} 成本不可小於 0")
+            records.append((source_group, name, year, basis, cost))
+    _assert_unique(
+        ((group, name, year) for group, name, year, _basis, _cost in records),
+        context="generation_cost.csv",
+    )
+    return records
+
+
 def _assert_unique(values: Iterable[Any], *, context: str) -> None:
     seen: set[Any] = set()
     duplicates: set[Any] = set()
@@ -165,6 +205,7 @@ def validate_files(
     crosswalk_csv: Path,
     daily_long_csv: Path,
     outage_csv: Path | None = None,
+    generation_cost_csv: Path | None = None,
 ) -> dict[str, Any]:
     unit_fields, units = read_csv(units_csv)
     daily_fields, daily = read_csv(daily_csv)
@@ -174,6 +215,10 @@ def validate_files(
     outages: list[dict[str, str]] = []
     if outage_csv is not None and outage_csv.is_file():
         outage_fields, outages = read_csv(outage_csv)
+    cost_fields: list[str] = []
+    cost_rows: list[dict[str, str]] = []
+    if generation_cost_csv is not None and generation_cost_csv.is_file():
+        cost_fields, cost_rows = read_csv(generation_cost_csv)
 
     require_columns(units_csv, unit_fields, UNITS_REQUIRED)
     require_columns(daily_csv, daily_fields, {"日期", *DAILY_SYSTEM_COLUMNS})
@@ -181,6 +226,9 @@ def validate_files(
     require_columns(daily_long_csv, long_fields, DAILY_LONG_REQUIRED)
     if outages:
         require_columns(outage_csv, outage_fields, OUTAGE_REQUIRED)
+    if generation_cost_csv is not None:
+        require_columns(generation_cost_csv, cost_fields, GENERATION_COST_REQUIRED)
+    generation_costs = parse_generation_cost_rows(cost_rows) if cost_rows else []
 
     _assert_unique(
         ((row["電廠名稱"].strip(), row["機組名稱"].strip()) for row in units),
@@ -267,6 +315,8 @@ def validate_files(
     paths = (units_csv, daily_csv, crosswalk_csv, daily_long_csv)
     if outages and outage_csv is not None:
         paths = (*paths, outage_csv)
+    if generation_cost_csv is not None:
+        paths = (*paths, generation_cost_csv)
     hashes = {path.name: sha256_file(path) for path in paths}
     checksum_input = "\n".join(f"{name}:{hashes[name]}" for name in sorted(hashes))
     return {
@@ -280,6 +330,7 @@ def validate_files(
             "mapped_columns": len(crosswalk),
             "daily_peak": len(daily_long),
             "outages": len(outages),
+            "generation_costs": len(generation_costs),
         },
         "date_range": {"min": min(dates), "max": max(dates)},
         "source_sha256": hashes,
@@ -296,6 +347,7 @@ def validate_configured_files(root: Path = PROJECT_ROOT) -> dict[str, Any]:
         paths["crosswalk_csv"],
         paths["daily_long_csv"],
         paths["outage_csv"],
+        paths["generation_cost_csv"],
     )
 
 

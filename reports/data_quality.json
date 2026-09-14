@@ -19,9 +19,9 @@
     "daily.csv": "b502dd35d3d92ca3bacf5d6db5a3f71e89877913a0e6c77eb29e32e42b6046a8",
     "crosswalk.csv": "4119ef328f86e992a07641198ccecceb6b60708e437e093ee00c0dac5965d60e",
     "daily_long.csv": "c84d9f92e8087cfea82fdee7a4720c500a38a21b790c56ce33019f283b3a505e",
-    "outage.csv": "1e8daa2976d0db1b9bccf45012c043aecb4af338005ea7a10c578cc7b168557f"
+    "outage.csv": "a3d3cd8f90648f592c33c7918afc4c084b6683a06a50d035744d7216cc788cbc"
   },
-  "data_checksum": "484632d9008c223178d152cef41f77ba4881caa1d1a62a70f7e2791e4d4e4d74",
+  "data_checksum": "f3ac4a951641db23d06107bf887c9d6639617d252e26f533fe961b15323b30c3",
   "warnings": [
     {
       "code": "OUTAGE_DATE_INVALID",
@@ -32,7 +32,7 @@
     }
   ],
   "schema_version": "1",
-  "database": "C:\\Users\\chenl\\OneDrive\\桌面\\text2sql\\data\\processed\\power.db",
+  "database": "C:\\Users\\User\\Desktop\\PowerQueryTW\\text2sql_project\\data\\processed\\power.db",
   "table_counts": {
     "dim_plant": 22,
     "dim_unit": 175,

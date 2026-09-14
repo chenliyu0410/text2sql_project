@@ -1,3 +1,4 @@
+import json
 import re
 from pathlib import Path
 from typing import Any
@@ -75,12 +76,16 @@ def test_health_stats_and_static_frontend(client: TestClient) -> None:
     assert 'id="clearRuntimeKey"' in home.text
     assert '<option value="">沿用預設模式</option>' in home.text
     assert 'option value="auto">自動判斷</option>' in home.text
+    assert 'id="queryScope"' in home.text
+    assert 'option value="auto">自動（可信優先）</option>' in home.text
+    assert 'option value="raw">全量原始資料</option>' in home.text
     assert 'id="corpusEntries"' in home.text
     assert 'id="dataLoginForm"' in home.text
     assert 'id="datasetUploadForm"' in home.text
     assert 'id="dataChanges"' in home.text
     assert 'id="databaseVersions"' in home.text
     assert 'id="auditEvents"' in home.text
+    assert 'id="queryLogDownload"' in home.text
     assert 'href="/docs"' in home.text
 
     stylesheet = client.get("/static/app.css")
@@ -96,6 +101,7 @@ def test_health_stats_and_static_frontend(client: TestClient) -> None:
     script = client.get("/static/app.js")
     assert script.status_code == 200
     assert "if (selectedMode) requestBody.execution_mode = selectedMode" in script.text
+    assert "requestBody.query_scope = selectedScope" in script.text
     assert "SENSITIVE_HISTORY_PATTERNS" in script.text
     assert 'sidebar.setAttribute("aria-hidden", "true")' in script.text
 
@@ -361,6 +367,46 @@ def test_semantic_refusal_is_a_structured_business_response(client: TestClient) 
 
 def test_query_validation_rejects_blank_input(client: TestClient) -> None:
     assert client.post("/api/query", json={"question": "   "}).status_code == 422
+
+
+@pytest.mark.e2e
+def test_failed_query_has_downloadable_safe_diagnostic_log(client: TestClient) -> None:
+    secret = "sk-secret-that-must-never-be-logged"
+    assert client.get("/api/data/status").status_code == 200
+    manager = client.app.state.runtime_manager
+    original_llm = manager.get_runtime("offline").pipeline.llm
+
+    class AuthenticationError(Exception):
+        pass
+
+    class InvalidCredentialLLM:
+        def generate(self, _prompt: str) -> str:
+            raise AuthenticationError(secret)
+
+    manager.get_runtime("offline").pipeline.llm = InvalidCredentialLLM()
+    try:
+        response = client.post(
+            "/api/query",
+            json={"question": "請解釋所有資料欄位之間的關係", "execution_mode": "offline"},
+        )
+    finally:
+        manager.get_runtime("offline").pipeline.llm = original_llm
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["success"] is False
+    assert len(payload["diagnostic_id"]) == 32
+
+    downloaded = client.get("/api/data/query-errors")
+    assert downloaded.status_code == 200
+    assert "powerquery-query-errors.jsonl" in downloaded.headers["content-disposition"]
+    event = next(
+        json.loads(line)
+        for line in downloaded.text.splitlines()
+        if payload["diagnostic_id"] in line
+    )
+    assert event["error_code"] == "LLM_AUTH_FAILED"
+    assert secret not in downloaded.text
 
 
 def test_missing_database_is_reported_as_unavailable(tmp_path: Path) -> None:

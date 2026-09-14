@@ -35,6 +35,10 @@
 
 使用者用中文問台電機組出力，系統回答，且答案要嘛正確、要嘛誠實說不知道。
 
+答案除了文字與表格，也要能依結果資料形狀產生經驗證的 `chart_spec`，由前端顯示折線圖、
+長條圖或散點圖。成功查詢及人工修正則進入 staging corpus，通過去識別、去重、守門、
+結果一致性與回歸評測後，自動晉升正式語料並重建檢索索引。
+
 ```
 「台中1號機今年最高出力多少？」            → 可答，直接查
 「哪些機組現在在歲修？」                   → 可答，查歲修表
@@ -493,11 +497,28 @@ db 執行         ─────────────────── 報�
 
 每組實驗輸出進 `reports/`，圖表進 `reports/figures/`。
 
-### 回饋飛輪
+### 自動增量語料與回饋飛輪
 
 ```
-評測失敗題 → 人工標正確 SQL → 進 corpus/examples → 重跑評測 → 記錄前後差異
+成功查詢／人工修正
+    ↓
+候選 question–SQL pair（staging）
+    ↓
+去識別 → 去重 → SQL 守門 → 語意守門 → 固定資料集結果一致性
+    ↓
+no-leakage + benchmark 回歸
+    ↓ 通過                         ↓ 不通過
+正式 corpus + 重建檢索索引         隔離並留下原因
 ```
+
+這裡的「自動訓練」定義為**增量擴充 corpus 並重建 TF-IDF／向量檢索索引**，不是自動把
+每次模型回答拿去微調基礎模型。只有成功執行或經人工修正的 pair 能進 staging；只有所有
+品質閘門通過的批次才能自動晉升。不得讓線上輸入直接進正式語料，否則一個錯誤答案會被
+後續查詢反覆檢索，形成資料污染。
+
+每筆語料至少記錄 `id`、`question`、`sql`、`source`、`created_at`、`approved_by`、
+`schema_version`、`data_manifest_version` 與驗證結果。每次正式 corpus 及索引都要有版本與
+checksum，發布後 smoke test 失敗時能切回前一版。
 
 每一輪的評測數字進 `reports/eval_history.jsonl`，**只准追加不准覆蓋**。這樣才看得出
 語料加了之後到底有沒有變好，還是只是換一批題目失敗。
@@ -686,11 +707,11 @@ OPENAI_API_KEY=      # 只有 make ask / 線上評測需要
 | **0** 地基 | repo 骨架、uv、ruff、CI、configs 骨架 | `make setup && make test` 通過（此時測試還很少）| — |
 | **1** 資料層 | `power.db` 星狀模型 + 四個 `v_*` 檢視 + `meta_manifest` | 各表列數對得上 README 數字（175 / 43 / 36,928 / 577）；`validate.py` 期間檢查通過 | `taipower_align/` 的 `fetch.py`、`daily_long.csv` |
 | **2** 對齊層 | `align/` 純函式 + `meta_pitfall` + 歲修對齊 | `test_crosswalk.py` 通過：43 列全中、ratio 全在區間內或已標記異常；歲修 138 列對齊率 ≥ 90%，剩下進 overrides | `taipower_align/align.py` 的 `RULES` / `RESIDUAL` / `BUCKET` |
-| **3** 語料 | `corpus/` 語料 + `benchmarks/` 四份題庫 | `test_no_leakage.py` 通過；`in_corpus` 兩組各 ≥ 20 題 | README 陷阱清單 |
+| **3** 語料 | `corpus/` 語料 + staging／promotion 管線 + `benchmarks/` 四份題庫 | `test_no_leakage.py` 通過；`in_corpus` 兩組各 ≥ 20 題；失敗批次不可發布 | README 陷阱清單 |
 | **4** 管線 | 路由 → RAG → 生成 → SQL 守門 → 修復 | `test_pipeline.py` 用 FakeLLM 全離線通過；`test_sql_guard.py` 15/15 攔下；意圖準確率 ≥ 90% | 課程 `minisql/` |
 | **5** 語意守門 ★ | `semantic_guard.py` + 三個嚴重度 | `test_semantic_guard.py`：陷阱題命中率 ≥ 95%，**誤攔率 ≤ 5%** | 無先例 |
-| **6** 評測 | 三組指標 + 四組 ablation + 回饋飛輪 | `make eval` 產出完整 `reports/`；執行準確率 `in_corpus=false` 組 ≥ 60% | 課程 `lab06` |
-| **7** 呈現層 | FastAPI + 前端 | 後續討論 | `智能電力分析系統` 契約 |
+| **6** 評測 | 三組指標 + 四組 ablation + 自動語料晉升閘門 | `make eval` 產出完整 `reports/`；執行準確率 `in_corpus=false` 組 ≥ 60%；新索引不得使核心指標退步 | 課程 `lab06` |
+| **7** 呈現層 | FastAPI + 前端 + 圖表規格產生器 | 核心 E2E 通過；圖值與 SQL rows 一致；不適合繪圖時回傳 `chart_spec: null` | `智能電力分析系統` 契約 |
 
 ### 為什麼先做資料層才做管線
 
@@ -767,6 +788,23 @@ OPENAI_API_KEY=      # 只有 make ask / 線上評測需要
 一個現在就該記下的接點：參考規格的進度卡需要「階段 + 耗時」，而管線的 `trace` 已經
 記了每次嘗試的 `stage` 與 `error`。**Phase 4 實作 `pipeline.py` 時把每步的耗時也記進
 `trace`**，Phase 7 就不用回頭改。
+
+### 圖表產生
+
+圖表不能由前端猜資料含義。後端在 SQL 執行後依欄位型別、單位與問題意圖產生受限的
+`chart_spec`，前端只負責驗證與渲染：
+
+| 資料形狀 | 預設呈現 |
+|---|---|
+| 日期 + 數值 | 折線圖，日期升冪 |
+| 類別 + 數值 | 長條圖 |
+| 兩個連續數值 | 散點圖 |
+| 單一 scalar | KPI，不強制產生圖表 |
+| 空結果、全 NULL、純文字 | `chart_spec: null` + 表格或提示 |
+
+白名單只允許 `line`、`bar`、`scatter` 等已測試圖型；標題、label、hover text 全部視為
+不可信輸入並跳脫。圖表必須附正確座標軸名稱、單位與 disclosures，且 x／y 資料要能逐項
+追溯回 SQL 回傳 rows。禁止後端傳入可執行 JavaScript 或 formatter function。
 
 ---
 

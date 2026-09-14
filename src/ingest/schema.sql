@@ -88,6 +88,16 @@ CREATE TABLE dim_outage (
     alignment_status TEXT NOT NULL DEFAULT 'unmatched'
 );
 
+CREATE TABLE fact_generation_cost (
+    id INTEGER PRIMARY KEY,
+    source_group TEXT NOT NULL,
+    generation_type TEXT NOT NULL,
+    year INTEGER NOT NULL CHECK (year BETWEEN 1900 AND 2200),
+    accounting_basis TEXT NOT NULL,
+    cost_per_kwh REAL NOT NULL CHECK (cost_per_kwh >= 0),
+    UNIQUE (source_group, generation_type, year)
+);
+
 CREATE TABLE meta_pitfall (
     id INTEGER PRIMARY KEY,
     pitfall_code TEXT NOT NULL,
@@ -115,6 +125,7 @@ CREATE TABLE meta_manifest (
 CREATE INDEX idx_daily_peak_column_date ON fact_daily_peak (b_column_id, date);
 CREATE INDEX idx_unit_name ON dim_unit (unit_name);
 CREATE INDEX idx_pitfall_target ON meta_pitfall (target_kind, target_name);
+CREATE INDEX idx_generation_cost_year_type ON fact_generation_cost (year, generation_type);
 
 CREATE VIEW v_unit AS
 SELECT
@@ -171,3 +182,12 @@ SELECT
 FROM dim_outage AS o
 LEFT JOIN dim_unit AS u ON u.id = o.unit_id
 LEFT JOIN dim_plant AS p ON p.id = u.plant_id;
+
+CREATE VIEW v_generation_cost AS
+SELECT
+    year AS "年度",
+    source_group AS "電力來源",
+    generation_type AS "發電方式",
+    cost_per_kwh AS "成本_元每度",
+    accounting_basis AS "決算類型"
+FROM fact_generation_cost;

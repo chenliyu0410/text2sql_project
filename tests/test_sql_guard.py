@@ -52,3 +52,15 @@ def test_guard_accepts_parameterized_view_query() -> None:
     result = SqlGuard().validate(sql, ("台中#1",))
     assert result.allowed
     assert result.tables == ("v_peak",)
+
+
+def test_guard_accepts_generation_cost_view_query() -> None:
+    sql = (
+        'SELECT "年度", "成本_元每度" FROM v_generation_cost '
+        'WHERE "年度" = ? AND "發電方式" = ? LIMIT 20'
+    )
+
+    result = SqlGuard().validate(sql, (2025, "火力發電"))
+
+    assert result.allowed
+    assert result.tables == ("v_generation_cost",)

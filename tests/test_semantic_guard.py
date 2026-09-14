@@ -146,3 +146,14 @@ def test_context_is_loaded_from_database(tmp_path) -> None:
     data_range, pitfalls = load_semantic_context(database)
     assert data_range == DATA_RANGE
     assert pitfalls[0].target_name == "氣渦輪"
+
+
+def test_unspecified_generation_cost_requires_clarification(
+    semantic_guard: SemanticGuard,
+) -> None:
+    question = "2025年發電的成本是多少"
+
+    decision = semantic_guard.check_question(question, extract_entities(question))
+
+    assert (decision.code, decision.severity) == ("GENERATION_COST_TYPE_REQUIRED", "clarify")
+    assert "2025年火力發電成本是多少？" in decision.suggestions

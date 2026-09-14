@@ -24,6 +24,7 @@ def test_full_source_fixture_matches_documented_counts() -> None:
         "mapped_columns": 43,
         "daily_peak": 36_928,
         "outages": 138,
+        "generation_costs": 72,
     }
     assert report["date_range"] == {"min": "2025-01-01", "max": "2026-07-31"}
 
@@ -47,7 +48,7 @@ def test_database_contains_star_schema_and_semantic_views(tmp_path: Path) -> Non
                 "SELECT name FROM sqlite_master WHERE type = 'view' ORDER BY name"
             )
         }
-        assert views == {"v_outage", "v_peak", "v_system", "v_unit"}
+        assert views == {"v_generation_cost", "v_outage", "v_peak", "v_system", "v_unit"}
         assert connection.execute("SELECT COUNT(*) FROM v_peak").fetchone()[0] == 36_928
         assert connection.execute("SELECT COUNT(*) FROM v_system").fetchone()[0] == 577
         assert (
@@ -65,6 +66,22 @@ def test_database_contains_star_schema_and_semantic_views(tmp_path: Path) -> Non
             "2026-07-31",
             report["database_content_checksum"],
         )
+
+
+@pytest.mark.integration
+def test_database_exposes_2025_thermal_generation_cost(tmp_path: Path) -> None:
+    target = tmp_path / "power.db"
+
+    report = build_database(target)
+
+    assert report["table_counts"]["fact_generation_cost"] == 72
+    with sqlite3.connect(target) as connection:
+        row = connection.execute(
+            'SELECT "年度", "電力來源", "發電方式", "成本_元每度", "決算類型" '
+            'FROM v_generation_cost WHERE "年度" = ? AND "發電方式" = ? LIMIT 1',
+            (2025, "火力發電"),
+        ).fetchone()
+    assert row == (2025, "自發電力", "火力發電", 2.67, "自編決算")
 
 
 @pytest.mark.integration

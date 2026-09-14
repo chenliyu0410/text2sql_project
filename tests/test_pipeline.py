@@ -63,3 +63,26 @@ def test_pipeline_fails_honestly_after_three_attempts() -> None:
     assert response.error_code == "GENERATION_FAILED"
     assert response.evidence["attempts"] == 3
     assert len(llm.calls) == 3
+
+
+def test_authentication_error_is_not_retried_and_is_actionable() -> None:
+    class AuthenticationError(Exception):
+        pass
+
+    class InvalidCredentialLLM:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def generate(self, _prompt: str) -> str:
+            self.calls += 1
+            raise AuthenticationError("sk-secret-must-not-leak")
+
+    llm = InvalidCredentialLLM()
+    response = make_pipeline(llm, lambda _sql, _params: ([], [])).query("列出所有資料可用日期")
+
+    assert not response.success
+    assert response.error_code == "LLM_AUTH_FAILED"
+    assert response.error == "OpenAI API key 驗證失敗，請到 API 設定更新金鑰。"
+    assert response.evidence == {"attempts": 1, "last_error": "LLM_OUTPUT_ERROR: AuthenticationError"}
+    assert llm.calls == 1
+    assert "sk-secret" not in str(response.to_dict())

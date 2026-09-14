@@ -184,6 +184,15 @@ class Text2SQLPipeline:
                 except Exception as error:  # Adapter errors become bounded pipeline errors.
                     prior_error = f"LLM_OUTPUT_ERROR: {type(error).__name__}"
                     self._trace(trace, "generate", started, attempt=attempt, error=prior_error)
+                    if type(error).__name__ in {"AuthenticationError", "PermissionDeniedError"}:
+                        return PipelineResponse(
+                            False,
+                            data={"trace": trace},
+                            error_code="LLM_AUTH_FAILED",
+                            error="OpenAI API key 驗證失敗，請到 API 設定更新金鑰。",
+                            severity="error",
+                            evidence={"attempts": attempt, "last_error": prior_error},
+                        )
                     continue
                 self._trace(trace, "generate", started, attempt=attempt)
 

@@ -1,93 +1,18 @@
-# PowerQuery TW API 契約
+# API Contract
 
-服務使用 JSON 與一致的回應 envelope。OpenAPI schema 位於 `/openapi.json`，互動式文件位於 `/docs`。除輸入格式錯誤、服務未就緒或模式設定錯誤外，Text2SQL 的業務層拒答仍使用 HTTP 200，並由 `success`、`error_code` 與 `severity` 表達結果。
+服務使用 JSON 與結構化 envelope；本機 schema 位於 `/openapi.json`，互動式檢視器位於 `/docs`。檢視器只在自己的 nonce CSP 下以固定版本與 SRI 載入 Swagger UI CDN；主應用 CSP 不會因此放寬。除格式驗證、服務尚未就緒或模式設定錯誤外，Text2SQL 的業務層拒答仍使用 HTTP 200，並由 `success` 與 `error_code` 表達結果。
 
-## 管理員驗證與安全邊界
+## Runtime 模式
 
-以下端點維持公開：
+`RuntimeManager` 支援三種模式：
 
-- 首頁、靜態資源、`/docs`、`/openapi.json`
-- `GET /api/health`
-- `GET /api/stats`
-- `GET /api/examples`
-- `POST /api/query`
-
-`GET /api/admin/session` 與 `POST /api/admin/session` 用來查詢登入狀態及建立 session；其餘 `/api/runtime/*`、`/api/corpus/*`、`/api/data/*` 及 `GET /api/training-status` 都需要管理員 session。所有管理端點回應皆帶 `Cache-Control: no-store` 與 `Pragma: no-cache`。
-
-本機展示預設帳號為 `admin`、密碼為 `PowerQuery@123`。這是公開的 demo 帳密，只允許 loopback 用戶端登入；對外部署前必須同時設定 `POWERQUERY_ADMIN_USERNAME` 與 `POWERQUERY_ADMIN_PASSWORD`。只設定其中一項、空值、過短密碼或不合法 TTL 都會拒絕啟動。可用 `POWERQUERY_ADMIN_SESSION_TTL_SECONDS` 設定 300～3600 秒的絕對有效期，預設 900 秒；`POWERQUERY_ADMIN_ALLOWED_HOSTS` 是不含 port 的逗號分隔 hostname/IP 清單。
-
-登入成功後使用名為 `powerquery_admin_session` 的 host-only cookie：
-
-- `HttpOnly`、`SameSite=Strict`、`Path=/api`
-- HTTPS 時加上 `Secure`
-- session token 與 CSRF token 都是隨機 opaque 值；伺服器端只保存 SHA-256 digest
-- session 不會滑動續期，服務重啟即全部失效
-- 前端不把密碼或 CSRF 寫入 Web Storage；cookie 只由瀏覽器管理，JavaScript 無法讀取
-
-所有管理寫入都必須同時提供有效 cookie、精確同源 `Origin`，以及最新的 `X-PowerQuery-CSRF`。若送出 `Sec-Fetch-Site`，值也必須是 `same-origin`。
-
-### `POST /api/admin/session`
-
-建立短期管理 session。登入本身也必須帶與請求 URL 完全相同的 `Origin`。
-
-```json
-{
-  "username": "admin",
-  "password": "PowerQuery@123"
-}
-```
-
-成功回應會以 `Set-Cookie` 設定 session，並回傳只應保存在記憶體的 CSRF：
-
-```json
-{
-  "success": true,
-  "data": {
-    "authenticated": true,
-    "username": "admin",
-    "issued_at": "2026-09-13T01:00:00+00:00",
-    "expires_at": "2026-09-13T01:15:00+00:00",
-    "using_default_credentials": true,
-    "csrf_token": "目前 session 的隨機值",
-    "session_ttl_seconds": 900
-  }
-}
-```
-
-帳密錯誤回 401；不可信任 host、非同源或使用預設帳密從非 loopback 登入回 403；同一來源五分鐘內失敗過多回 429，並帶 `Retry-After`。錯誤不回顯帳密。
-
-### `GET /api/admin/session`
-
-沒有 cookie、cookie 無效或已逾期時回 HTTP 200：
-
-```json
-{
-  "success": true,
-  "data": {
-    "authenticated": false,
-    "using_default_credentials": true,
-    "session_ttl_seconds": 900
-  }
-}
-```
-
-cookie 有效時回登入者資訊與新的 `csrf_token`。每次呼叫都會輪替 CSRF，舊值立即失效，且不延長 session 絕對有效期；頁面重新整理後應先呼叫本端點取得新值。
-
-### `DELETE /api/admin/session`
-
-需要 cookie、精確同源 `Origin` 與 `X-PowerQuery-CSRF`。成功後撤銷伺服器端 session、清除 cookie，並回 `authenticated: false`。
-
-## 執行模式
-
-`RuntimeManager` 支援：
-
-- `offline`：規則路由與本機唯讀 SQLite，不呼叫遠端模型。
-- `online`：規則未涵蓋時使用 OpenAI Responses API；需要 API key 與 online 額外依賴。
-- `auto`：有可用 API key 時使用線上 runtime，否則退回離線規則。
+- `offline`：只使用可重現的規則路由與唯讀 SQLite，不呼叫遠端模型。這不是安裝在本機的生成式模型；未涵蓋的長尾問句會明確拒答。
+- `online`：規則路由未涵蓋時可使用 OpenAI Responses API；必須有記憶體內 API key 或程序環境變數 `OPENAI_API_KEY`。
+- `auto`：有可用 API key 時選用線上 runtime，否則退回離線規則模式。
 
 ### `GET /api/runtime/llm`
 
-需要管理員 session。回傳安全狀態，不包含 API key：
+回傳目前預設模式、實際啟用模式與不含憑證的設定：
 
 ```json
 {
@@ -104,11 +29,11 @@ cookie 有效時回登入者資訊與新的 `csrf_token`。每次呼叫都會輪
 }
 ```
 
-`source` 可能是 `offline`、`memory`、`environment` 或注入測試使用的 `injected`。
+`source` 可能是 `offline`、`memory`、`environment` 或測試／嵌入情境使用的 `injected`。回應永遠不包含 API key。
 
 ### `PUT /api/runtime/llm`
 
-需要管理員 session、同源與 CSRF。`mode` 必填；`api_key` 與 `model` 可省略以保留現值。
+更新程序內的預設 runtime。`mode` 必填；`api_key` 與 `model` 可省略，以保留既有值；`model: null` 也視為沿用目前模型。
 
 ```json
 {
@@ -118,13 +43,15 @@ cookie 有效時回登入者資訊與新的 `csrf_token`。每次呼叫都會輪
 }
 ```
 
-由 API 提供的 key 只存在伺服器程序記憶體，狀態與稽核紀錄只記錄是否有變更，不保存或回傳 key。`api_key: null` 可清除記憶體內 key；若啟動環境仍有 `OPENAI_API_KEY`，線上憑證仍會被視為可用。設定採先建立後切換，失敗時保留原 runtime 並回 400。
+成功時回傳與 `GET /api/runtime/llm` 相同的安全狀態。由此端點提供的 API key 只保留在伺服器程序記憶體中，不寫入磁碟、不記錄於語料，也不會由任何狀態端點回傳；程序重啟後需重新提供。以 `mode: "offline"` 或 `mode: "auto"` 搭配 `"api_key": null` 可清除記憶體內的 key；若仍有 `OPENAI_API_KEY`，狀態會繼續標示線上憑證可用，需從啟動環境移除。網頁提供「清除記憶體金鑰並切離線」控制。
+
+模式或模型無效、缺少線上憑證、或線上額外依賴尚未安裝時回 400。設定採先建置後切換；失敗時保留先前可用的 runtime。
 
 ## 查詢
 
 ### `POST /api/query`
 
-公開端點。`question` 為 1～500 字；`execution_mode` 可為 `offline`、`online`、`auto` 或省略，只影響本次查詢：
+接受 1～500 字的 `question`；可用 `execution_mode` 只覆寫這一次查詢，不變更 RuntimeManager 的預設模式：
 
 ```json
 {
@@ -133,13 +60,14 @@ cookie 有效時回登入者資訊與新的 `csrf_token`。每次呼叫都會輪
 }
 ```
 
-指定 `online` 但沒有可用憑證時回 409。成功的 `data` 包含 `sql`、`params`、`tables`、`columns`、`rows`、`record_count`、`disclosures`、`trace`、`chart_spec`、`explanation`、`statistics`，以及：
+`execution_mode` 可為 `offline`、`online`、`auto` 或省略。指定 `online` 但尚無線上憑證時回 409。
 
-- `runtime`：本次實際使用的模式、provider 與 model。
-- `learning`：語料候選觀察結果；語料工作區失敗不會把已完成查詢改成失敗。
-- `data_provenance`：`database_version` 與本次 SQL 涉及的 `data_sources`。每筆來源含資料槽、顯示檔名、版本、SHA-256、大小、存在狀態與對應語意 view。
+成功的 `data` 包含 `sql`、`params`、`columns`、`rows`、`record_count`、`disclosures`、`trace`、`chart_spec`、`explanation`、`statistics`，以及：
 
-`chart_spec.kind` 只允許 `line`、`bar`、`scatter` 或 `null`，不允許 JavaScript formatter 或其他可執行內容。
+- `runtime`：本次實際使用的 `mode`、`provider`、`model`。
+- `learning`：本次結果的語料觀察狀態；語料寫入失敗不會把已完成的查詢改成失敗。
+
+`chart_spec.kind` 只能是 `line`、`bar`、`scatter` 或 `null`；`data` 與 `layout` 是 Plotly 可接受的受限子集，x/y 數列直接由 SQL rows 投影，不允許 JavaScript formatter 或其他可執行內容。前端再次套用白名單後才交給 Plotly；載入不到 Plotly CDN 時會以相同 x/y 資料退回原生 SVG。
 
 業務層拒答範例：
 
@@ -154,141 +82,86 @@ cookie 有效時回登入者資訊與新的 `csrf_token`。每次呼叫都會輪
 }
 ```
 
-## 語料治理與人工審核
+## 語料學習與調閱
 
-「學習」代表新增受治理的 Text2SQL 檢索範例，不是背景微調。規則 router 與線上 LLM 的有效候選都必須先經去識別、重複與 benchmark 洩漏檢查、SQL／語意護欄、結果重播及檢索回歸，然後一律停在 `pending_review`；不存在 router 自動發布例外。只有通過人工核准並以當下資料與語料基線重驗的候選才能成為 `promoted`。
+這裡的「學習」是受治理的檢索語料擴充，不是背景微調或重新訓練生成式模型。系統只觀察透過本服務 Web/API 完成的成功查詢：規則路由結果通過去識別、重複檢查、benchmark 洩漏檢查、SQL／語意護欄、結果重播與檢索回歸門檻後可自動升版；線上模型產生的候選內容會停在 `pending_review`，不會未經人工審查自動發布。
 
-候選位於資料庫旁的 `.powerquery-learning/`，不直接修改版控中的 `corpus/training_corpus.json`。它保存去識別問句、SQL、參數、來源、涉及資料表、驗證、結果 checksum 與 `data_provenance`，不保存查詢結果 rows。資料庫基線變更時，舊的已發布候選會回到 `pending_review` 等待重新審核。
+學習資料寫入資料庫旁的隔離工作區 `.powerquery-learning/`，不直接修改版控中的 `corpus/training_corpus.json`。候選紀錄包含問句、參數、SQL、來源、驗證結果與結果 checksum，但不保存查詢結果 rows。所有 read-modify-write 週期同時使用程序內共用鎖與跨程序檔案鎖。
+
+最終序列化邊界會遞迴遮罩 Email、token、台灣身分證、手機／市話、長帳號與明確標示的姓名；若 SQL 或參數需要遮罩，候選會直接拒絕而不發布。相同問題的非發布版本可在 SQL、參數、來源或意圖修正後建立 `revision_of` revision；已發布問題維持冪等。
+
+工作區 manifest 記錄 canonical corpus、資料庫與 active corpus 的版本/checksum。canonical 或資料庫基線改變時會先備份舊 active corpus、重建 canonical 索引，保留候選 ledger，並將舊 `promoted` 候選改回 `pending_review` 要求重新驗證。
 
 ### `GET /api/training-status`
 
-需要管理員 session。政策欄位目前為：
+回傳實際工作區與索引狀態：
 
 ```json
 {
-  "auto_promote_source": null,
-  "manual_review_required": true,
-  "router_requires_review": true,
-  "llm_requires_review": true,
-  "maximum_retrieval_drop": 0.0
+  "success": true,
+  "is_training_complete": true,
+  "training_status": "語料學習工作區已就緒",
+  "data": {
+    "workspace_ready": true,
+    "corpus_version": "…",
+    "corpus_checksum": "…",
+    "published_examples": 40,
+    "index_synchronized": true,
+    "candidate_counts": {
+      "total": 0,
+      "validating": 0,
+      "pending_review": 0,
+      "promoted": 0,
+      "rejected": 0,
+      "ignored": 0
+    },
+    "policy": {
+      "auto_promote_source": "router",
+      "llm_requires_review": true,
+      "maximum_retrieval_drop": 0.0
+    },
+    "workspace_identity": {
+      "schema_version": "corpus-workspace-v1",
+      "canonical_corpus_checksum": "…",
+      "database_manifest_version": "…",
+      "active_corpus_checksum": "…"
+    }
+  }
 }
 ```
 
-`is_training_complete` 只表示工作區及索引已同步，不代表待審候選已被自動核准。
+`is_training_complete` 只有在工作區存在且索引與語料同步時為 `true`。
 
 ### `GET /api/corpus/entries`
 
-需要管理員 session。`state` 可為 `all`、`validating`、`pending_review`、`promoted`、`rejected`、`ignored`；`limit` 為 1～500，預設 100。內容由新到舊排列，不含查詢結果 rows。
+調閱已去識別的候選內容。查詢參數：
+
+- `state`：`all`（預設）、`validating`、`pending_review`、`promoted`、`rejected` 或 `ignored`。
+- `limit`：1～500，預設 100。
+
+回應的 `data` 包含 `state`、`entries` 與 `returned`。entries 依新到舊排列，並帶有來源、狀態、時間、驗證與升版資訊；不包含查詢結果 rows。
 
 ### `GET /api/corpus/events`
 
-需要管理員 session。`limit` 為 1～500，預設 100，回傳去識別事件。
+調閱語料工作區的去識別事件紀錄。`limit` 為 1～500，預設 100；回應的 `data` 包含 `events` 與 `returned`。
 
 ### `POST /api/corpus/entries/{candidate_id}/review`
 
-需要管理員 session、同源與 CSRF，只接受 `pending_review`：
+只接受 `pending_review` 候選。核准時會以目前資料庫與語料基線重新跑全部檢查，通過才發布；拒絕則保留可稽核紀錄：
 
 ```json
 {
   "decision": "approve",
-  "note": "已核對 SQL 與資料來源"
+  "reviewer": "本機審核人員"
 }
 ```
 
-`decision` 可為 `approve` 或 `reject`；`note` 可省略，最長 500 字。審核者一律取自 session 的 `username`，request body 不接受 `reviewer`。核准前會以目前資料庫與語料重新驗證；找不到候選回 404，狀態已改變或不可審核回 409。審核同時寫入語料事件與資料管理稽核鏈。
+`decision` 可為 `approve` 或 `reject`，`reviewer` 為 1～80 字。找不到候選回 404，候選已變更或不可審核回 409。這是會改變語料狀態的本機管理端點；服務預設只綁定 loopback。若對外提供，部署端必須另加 TLS、身分驗證與授權。
 
-## 資料管理與熱插拔
+## 其他端點與錯誤
 
-資料 API 不接受任意 SQL 或使用者提供的 SQLite，只管理固定、具 schema 約束的 UTF-8 CSV：
+- `GET /api/health`：服務、runtime 模式與資料期間。
+- `GET /api/stats`：尖峰事實列數、機組數、歲修列數與資料期間。
+- `GET /api/examples`：已審核的範例問句。
 
-| `dataset` | 固定檔名 | 可新增／替換 | 可移除 |
-|---|---|:---:|:---:|
-| `units_csv` | `units.csv` | 是 | 否 |
-| `daily_csv` | `daily.csv` | 是 | 否 |
-| `crosswalk_csv` | `crosswalk.csv` | 是 | 否 |
-| `daily_long_csv` | `daily_long.csv` | 是 | 否 |
-| `outage_csv` | `outage.csv` | 是 | 是 |
-
-上傳、移除、回退都只建立 `pending_review` 變更。建置成功不代表發布；人工核准時才會再次驗證來源與資料庫 checksum，原子切換 runtime 與 `active.json`。若核准的候選基於已過期的 active version，回 409，必須重新建立候選。回退也建立新待審變更，不會直接切換。
-
-### 讀取端點
-
-下列端點都需要管理員 session：
-
-- `GET /api/data/status`：active version/revision、資料槽、候選統計與稽核鏈狀態。
-- `GET /api/data/files`：active version 的來源 manifest。
-- `GET /api/data/files/{dataset}?version={version}`：下載 active 或指定已知版本的來源 CSV。`version` 請直接使用版本 API 回傳的 69 字元 ID。
-- `GET /api/data/changes?state=all&limit=100`：調閱變更；`state` 可為 `all`、`pending_review`、`approved`、`rejected`、`failed`。
-- `GET /api/data/changes/{change_id}`：單筆變更。
-- `GET /api/data/versions?limit=100`：已發布、不可變版本。
-- `GET /api/data/events?limit=100`：驗證完整 hash chain 後，回傳由新到舊的稽核事件。
-
-所有 `limit` 都是 1～500。
-
-### `POST /api/data/changes/upload`
-
-需要管理員 session、同源與 CSRF。`content_base64` 可為純 base64 或帶 `;base64,` 的 data URI；解碼後上限 64 MiB。
-
-```json
-{
-  "dataset": "outage_csv",
-  "filename": "outage.csv",
-  "content_base64": "77u/...",
-  "reason": "展示更新九月歲修資料"
-}
-```
-
-系統驗證 `.csv` 副檔名、UTF-8/UTF-8 BOM、NUL、標頭重複、必填欄位及至少一筆資料，再使用 deterministic builder 產生候選資料庫。`reason` 可省略，最長 500 字。
-
-### `POST /api/data/changes/remove`
-
-需要管理員 session、同源與 CSRF。目前只有 `outage_csv` 可移除：
-
-```json
-{
-  "dataset": "outage_csv",
-  "reason": "展示資料檔移除"
-}
-```
-
-### `POST /api/data/changes/{change_id}/review`
-
-需要管理員 session、同源與 CSRF：
-
-```json
-{
-  "decision": "approve",
-  "note": "已核對筆數與 checksum"
-}
-```
-
-`decision` 可為 `approve` 或 `reject`。審核者只能來自 session，不能由 request body 指定。核准成功後，新請求立即使用新資料庫，語料服務也會依新資料基線重建。
-
-### `POST /api/data/versions/{version}/rollback`
-
-需要管理員 session、同源與 CSRF；目標必須是已發布且不是目前 active 的版本：
-
-```json
-{
-  "reason": "展示完成，準備回到前一版"
-}
-```
-
-成功只回傳 `pending_review` 候選；仍須呼叫資料變更 review 才會套用。
-
-### 版本、檔案與稽核
-
-工作區位於資料庫旁的 `.powerquery-data/`，包含不可變來源快照、候選／已發布資料庫、變更與版本 manifest、`active.json`、短暫的 build／mutation／publish journals、append-only `audit.jsonl`、獨立 audit head 及其永久建立標記。build journal 將候選 DB bytes/hash 綁到確切來源，mutation journal 成對提交 change 與 audit；不可變發布紀錄與核准事件會先落盤，`active.json` 才是最後 commit point。中斷後可由相應 journal 冪等恢復。稽核事件含已驗證帳號與操作細節，並以 `previous_hash`／`event_hash` 串接；audit head、active revision、版本與 checksum 會交叉驗證，偵測到來源、DB、manifest、指標或稽核遭刪改時，資料查詢與所有管理 API 都 fail closed。名稱含 `password`、`secret`、`token`、`credential` 或 `api_key` 的欄位會在寫入邊界遮罩。
-
-## 常見狀態碼
-
-- 400：runtime 設定或資料內容／操作參數不合法。
-- 401：帳密錯誤，或需要登入的端點缺少／使用無效 session。
-- 403：host、Origin、`Sec-Fetch-Site` 或 CSRF 驗證失敗；預設帳密從非 loopback 登入也屬此類。
-- 404：找不到指定候選、資料變更、版本或來源。
-- 409：指定線上模式不可用、候選狀態衝突、舊基線衝突或不允許的資料狀態。
-- 422：JSON/schema 驗證失敗。FastAPI detail 不包含原始 `input`，避免問句或 API key 被反射。
-- 429：登入嘗試受到限速。
-- 503：資料庫、語料／資料工作區未就緒，或稽核鏈完整性失敗。
-
-所有回應另附 CSP、`X-Content-Type-Options: nosniff`、`X-Frame-Options: DENY` 與 `Referrer-Policy: no-referrer`。
+空問題、超過長度、額外 JSON 欄位、不合法 enum、非 JSON，或 `limit` 超出範圍時使用 FastAPI 422；422 的 detail 不反射原始 `input`，避免 malformed API key 或問句出現在錯誤回應。資料庫或語料學習工作區未就緒時使用 503。所有回應附加 CSP、`nosniff`、`DENY` frame 與 no-referrer headers。

@@ -35,6 +35,7 @@ from ingest.validate import (
     CROSSWALK_REQUIRED,
     DAILY_LONG_REQUIRED,
     DAILY_SYSTEM_COLUMNS,
+    GENERATION_COST_REQUIRED,
     OUTAGE_REQUIRED,
     UNITS_REQUIRED,
 )
@@ -95,6 +96,11 @@ DATA_SLOTS: dict[str, DataSlot] = {
         "outage.csv",
         frozenset(OUTAGE_REQUIRED),
         removable=True,
+    ),
+    "generation_cost_csv": DataSlot(
+        "generation_cost_csv",
+        "generation_cost.csv",
+        frozenset(GENERATION_COST_REQUIRED),
     ),
 }
 

@@ -39,6 +39,8 @@ from serving.data_management import (
     DataManagementStateError,
 )
 from serving.presentation import enrich_query_data
+from serving.query_log import QueryErrorLog
+from serving.raw_data import RawDataError, RawDataNotFoundError, RawDataService
 from serving.runtime import RuntimeManager, RuntimeMode, ServiceRuntime
 
 SAFE_RUNTIME_ERRORS = {
@@ -59,6 +61,7 @@ VIEW_SOURCE_SLOTS = {
     "v_system": ("daily_csv",),
     "v_peak": ("daily_csv", "daily_long_csv", "crosswalk_csv", "units_csv"),
     "v_outage": ("outage_csv", "units_csv"),
+    "v_generation_cost": ("generation_cost_csv",),
 }
 
 
@@ -115,6 +118,7 @@ class QueryRequest(BaseModel):
 
     question: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)]
     execution_mode: Literal["offline", "online", "auto"] | None = None
+    query_scope: Literal["trusted", "raw", "auto"] = "trusted"
 
 
 class RuntimeSettingsRequest(BaseModel):
@@ -148,7 +152,7 @@ class CorpusReviewRequest(BaseModel):
 class DataUploadRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    dataset: Literal["units_csv", "daily_csv", "crosswalk_csv", "daily_long_csv", "outage_csv"]
+    dataset: Literal["units_csv", "daily_csv", "crosswalk_csv", "daily_long_csv", "outage_csv", "generation_cost_csv"]
     filename: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
     content_base64: Annotated[str, StringConstraints(min_length=1, max_length=90_000_000)]
     reason: Annotated[
@@ -160,7 +164,7 @@ class DataUploadRequest(BaseModel):
 class DataRemoveRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    dataset: Literal["units_csv", "daily_csv", "crosswalk_csv", "daily_long_csv", "outage_csv"]
+    dataset: Literal["units_csv", "daily_csv", "crosswalk_csv", "daily_long_csv", "outage_csv", "generation_cost_csv"]
     reason: Annotated[
         str | None,
         StringConstraints(strip_whitespace=True, max_length=500),
@@ -196,6 +200,7 @@ def create_app(
     static_dir: Path | None = None,
     auth_manager: AdminAuthManager | None = None,
     data_manager: DataManagementService | None = None,
+    raw_data_service: RawDataService | None = None,
 ) -> FastAPI:
     assets = (static_dir or Path(__file__).with_name("static")).resolve()
     application = FastAPI(
@@ -217,6 +222,16 @@ def create_app(
         application.state.data_base_directory / ".powerquery-learning"
     )
     application.state.learning_service = None
+    diagnostic_workspace = (
+        data_manager.workspace
+        if data_manager is not None
+        else application.state.data_base_directory / DATA_WORKSPACE_NAME
+    )
+    application.state.raw_data_service = raw_data_service or RawDataService(
+        root=PROJECT_ROOT,
+        database=application.state.data_base_directory / "raw_open_data.db",
+    )
+    application.state.query_error_log = QueryErrorLog(diagnostic_workspace / "query-errors.jsonl")
     application.state.learning_pipelines = WeakSet()
     application.state.initialization_lock = RLock()
 
@@ -773,6 +788,17 @@ def create_app(
             filename=DATA_SLOTS[dataset].filename,
         )
 
+    @application.get("/api/data/query-errors")
+    def download_query_errors(_principal: AdminRead) -> FileResponse:
+        path = application.state.query_error_log.path
+        if not path.is_file():
+            raise HTTPException(status_code=404, detail="目前沒有查詢錯誤紀錄。")
+        return FileResponse(
+            path,
+            media_type="application/x-ndjson; charset=utf-8",
+            filename="powerquery-query-errors.jsonl",
+        )
+
     @application.get("/api/data/changes")
     def data_changes(
         _principal: AdminRead,
@@ -902,8 +928,85 @@ def create_app(
             ],
         }
 
+    @application.get("/api/raw/status")
+    def raw_status() -> dict[str, object]:
+        try:
+            return {"success": True, "data": application.state.raw_data_service.status()}
+        except RawDataError as error:
+            raise HTTPException(status_code=503, detail=str(error)) from error
+
+    @application.get("/api/raw/resources")
+    def raw_resources(
+        search: str | None = Query(default=None, max_length=200),
+        format_name: str | None = Query(default=None, alias="format", max_length=10),
+        limit: int = Query(default=100, ge=1, le=500),
+    ) -> dict[str, object]:
+        try:
+            resources = application.state.raw_data_service.list_resources(
+                search=search,
+                format_name=format_name,
+                limit=limit,
+            )
+        except RawDataError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        return {"success": True, "data": {"resources": resources, "count": len(resources)}}
+
+    @application.get("/api/raw/resources/{resource_id}/rows")
+    def raw_resource_rows(
+        resource_id: str,
+        search: str | None = Query(default=None, max_length=200),
+        member: str | None = Query(default=None, max_length=500),
+        limit: int = Query(default=50, ge=1, le=200),
+        offset: int = Query(default=0, ge=0),
+    ) -> dict[str, object]:
+        try:
+            data = application.state.raw_data_service.read_rows(
+                resource_id,
+                search=search,
+                member=member,
+                limit=limit,
+                offset=offset,
+            )
+        except RawDataNotFoundError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        except RawDataError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        return {"success": True, "data": data}
+
+    @application.post("/api/raw/rebuild")
+    def rebuild_raw_catalog(_principal: AdminMutation) -> dict[str, object]:
+        try:
+            return {"success": True, "data": application.state.raw_data_service.rebuild()}
+        except RawDataError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+
     @application.post("/api/query")
     def query(payload: QueryRequest) -> dict[str, object]:
+        if payload.query_scope == "raw":
+            try:
+                return application.state.raw_data_service.query(payload.question)
+            except RawDataNotFoundError as error:
+                response = {
+                    "success": False,
+                    "error": str(error),
+                    "error_code": "RAW_RESOURCE_NOT_FOUND",
+                    "severity": "error",
+                }
+            except RawDataError as error:
+                response = {
+                    "success": False,
+                    "error": str(error),
+                    "error_code": "RAW_QUERY_FAILED",
+                    "severity": "error",
+                }
+            response["diagnostic_id"] = application.state.query_error_log.record_failure(
+                question=payload.question,
+                requested_mode=None,
+                requested_scope="raw",
+                runtime={"mode": "raw", "provider": "local-files", "model": None},
+                response=response,
+            )
+            return response
         service, data_snapshot = current_runtime_snapshot(payload.execution_mode)
         learning: CorpusLearningService | None
         try:
@@ -912,6 +1015,21 @@ def create_app(
             learning = None
         pipeline_response = service.pipeline.query(payload.question)
         response = pipeline_response.to_dict()
+        if not response["success"] and payload.query_scope == "auto":
+            try:
+                fallback = application.state.raw_data_service.query(payload.question)
+            except RawDataError:
+                fallback = None
+            fallback_data = fallback.get("data") if isinstance(fallback, Mapping) else None
+            if (
+                isinstance(fallback, Mapping)
+                and fallback.get("success") is True
+                and isinstance(fallback_data, dict)
+                and fallback_data.get("intent") == "raw_resource_lookup"
+            ):
+                fallback_data["fallback_from"] = "trusted"
+                fallback_data["trusted_error_code"] = response.get("error_code")
+                return dict(fallback)
         if response["success"] and isinstance(response.get("data"), dict):
             tables = [str(table) for table in response["data"].get("tables", ())]
             try:
@@ -948,6 +1066,7 @@ def create_app(
                 }
             )
             response["data"] = enrich_query_data(response["data"])
+            response["data"]["query_scope"] = "trusted"
             response["data"]["runtime"] = {
                 "mode": service.mode,
                 "provider": service.provider,
@@ -955,6 +1074,19 @@ def create_app(
             }
             response["data"]["data_provenance"] = provenance
             response["data"]["learning"] = learning_result
+        if not response["success"]:
+            response["diagnostic_id"] = application.state.query_error_log.record_failure(
+                question=payload.question,
+                requested_mode=payload.execution_mode,
+                requested_scope=payload.query_scope,
+                runtime={
+                    "mode": service.mode,
+                    "provider": service.provider,
+                    "model": service.model,
+                    "database": getattr(getattr(service, "database", None), "name", None),
+                },
+                response=response,
+            )
         return response
 
     application.mount("/static", StaticFiles(directory=assets), name="static")

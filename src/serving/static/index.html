@@ -130,6 +130,13 @@
             <label class="sr-only" for="queryInput">輸入電力資料問題</label>
             <textarea id="queryInput" rows="1" maxlength="500" placeholder="例如：2026 年 7 月備轉容量率最低是哪一天？" required></textarea>
             <div class="composer-actions">
+              <label class="mode-select-label" for="queryScope"><span class="sr-only">這次查詢的資料範圍</span>
+                <select id="queryScope" aria-label="這次查詢的資料範圍">
+                  <option value="auto">自動（可信優先）</option>
+                  <option value="trusted">僅可信資料</option>
+                  <option value="raw">全量原始資料</option>
+                </select>
+              </label>
               <label class="mode-select-label" for="executionMode"><span class="sr-only">這次查詢的執行模式</span>
                 <select id="executionMode" aria-label="這次查詢的執行模式">
                   <option value="">沿用預設模式</option>
@@ -235,6 +242,7 @@
 
                 <section class="surface management-card" aria-labelledby="datasetFilesTitle">
                   <div class="content-heading"><div><p class="eyebrow">ACTIVE SOURCES</p><h3 id="datasetFilesTitle">資料檔清單</h3></div><span class="result-count" id="datasetResultCount">—</span></div>
+                  <div class="form-actions"><a class="secondary-button" id="queryLogDownload" href="/api/data/query-errors" download>下載查詢診斷 Log</a></div>
                   <div class="filter-bar">
                     <label><span class="sr-only">搜尋資料檔</span><input type="search" id="datasetSearch" placeholder="搜尋資料集、檔名或版本…"></label>
                     <label><span class="sr-only">依資料檔狀態篩選</span><select id="datasetStateFilter"><option value="all">全部狀態</option><option value="active">已啟用</option><option value="inactive">已停用</option><option value="pending">有待審異動</option></select></label>

@@ -30,3 +30,14 @@ def test_unit_day_route_uses_alias_and_chinese_date() -> None:
     assert routed.intent == "unit_day"
     assert routed.params == ("台中#2", "2026-05-02")
     assert routed.sql and "LIMIT 1" in routed.sql
+
+
+def test_generation_cost_route_is_parameterized() -> None:
+    question = "2025年火力發電的成本是多少"
+
+    routed = route(question, extract_entities(question), peak_columns=set())
+
+    assert routed.intent == "generation_cost"
+    assert routed.params == (2025, "火力發電")
+    assert routed.sql and "v_generation_cost" in routed.sql
+    assert routed.sql.count("?") == 2
