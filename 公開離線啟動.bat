@@ -9,13 +9,12 @@ echo ============================================================
 echo   PowerQuery TW 公開離線服務
 echo ============================================================
 echo.
-powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\public_offline_service.ps1" -Mode start
+powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\public_offline_service.ps1" -Mode run
 if errorlevel 1 goto :failure
 
 echo.
-echo 已完成。上方 HTTPS 網址可提供給其他人使用。
+echo 公開離線服務已停止。
 popd
-pause
 exit /b 0
 
 :failure

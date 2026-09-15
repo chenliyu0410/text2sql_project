@@ -1,6 +1,6 @@
 ﻿[CmdletBinding()]
 param(
-    [ValidateSet("start", "stop", "status", "credentials")]
+    [ValidateSet("start", "run", "stop", "status", "credentials")]
     [string]$Mode = "start"
 )
 
@@ -268,6 +268,112 @@ function Start-PublicOfflineService {
     Show-AdminCredentials
 }
 
+function Run-PublicOfflineService {
+    Initialize-Directories
+
+    if (-not (Test-Path -LiteralPath $TailscaleExecutable -PathType Leaf)) {
+        throw "找不到 Tailscale：$TailscaleExecutable"
+    }
+    if (-not (Test-Path -LiteralPath $PowerQueryExecutable -PathType Leaf)) {
+        throw "找不到 PowerQuery 虛擬環境。請先執行專案根目錄的 啟動.bat。"
+    }
+    if (-not (Test-Path -LiteralPath $DatabasePath -PathType Leaf)) {
+        throw "找不到資料庫：$DatabasePath"
+    }
+    if ($null -ne (Get-TrackedProcess) -or (Test-LocalPortInUse)) {
+        throw "公開離線服務已在執行。請先關閉原本的終端機，或執行 停止公開服務.bat。"
+    }
+
+    $publicUrl = Get-PublicUrl
+    $publicHost = ([Uri]$publicUrl).Host
+    $credentials = Get-OrCreateAdminCredentials
+    $savedEnvironment = @{
+        OPENAI_API_KEY = [Environment]::GetEnvironmentVariable("OPENAI_API_KEY", "Process")
+        POWERQUERY_ADMIN_USERNAME = [Environment]::GetEnvironmentVariable("POWERQUERY_ADMIN_USERNAME", "Process")
+        POWERQUERY_ADMIN_PASSWORD = [Environment]::GetEnvironmentVariable("POWERQUERY_ADMIN_PASSWORD", "Process")
+        POWERQUERY_ADMIN_ALLOWED_HOSTS = [Environment]::GetEnvironmentVariable("POWERQUERY_ADMIN_ALLOWED_HOSTS", "Process")
+        PYTHONUNBUFFERED = [Environment]::GetEnvironmentVariable("PYTHONUNBUFFERED", "Process")
+    }
+
+    $process = $null
+    $funnelEnabled = $false
+    try {
+        try {
+            [Environment]::SetEnvironmentVariable("OPENAI_API_KEY", $null, "Process")
+            [Environment]::SetEnvironmentVariable("POWERQUERY_ADMIN_USERNAME", [string]$credentials.username, "Process")
+            [Environment]::SetEnvironmentVariable("POWERQUERY_ADMIN_PASSWORD", [string]$credentials.password, "Process")
+            [Environment]::SetEnvironmentVariable("POWERQUERY_ADMIN_ALLOWED_HOSTS", "127.0.0.1,localhost,::1,$publicHost", "Process")
+            [Environment]::SetEnvironmentVariable("PYTHONUNBUFFERED", "1", "Process")
+            $process = Start-Process -FilePath $PowerQueryExecutable `
+                -ArgumentList @("--serve", "--host", "127.0.0.1", "--port", "$LocalPort") `
+                -WorkingDirectory $ProjectRoot -NoNewWindow -PassThru
+        }
+        finally {
+            foreach ($name in $savedEnvironment.Keys) {
+                [Environment]::SetEnvironmentVariable($name, $savedEnvironment[$name], "Process")
+            }
+        }
+
+        Set-Content -LiteralPath $PidPath -Value $process.Id -Encoding ASCII
+        $healthy = $false
+        for ($attempt = 0; $attempt -lt 120; $attempt++) {
+            $process.Refresh()
+            if ($process.HasExited) {
+                break
+            }
+            if ($null -ne (Get-OfflineHealth)) {
+                $healthy = $true
+                break
+            }
+            Start-Sleep -Milliseconds 500
+        }
+        if (-not $healthy) {
+            throw "公開離線服務未能通過健康檢查。"
+        }
+
+        $publicUrl = Enable-PublicFunnel
+        $funnelEnabled = $true
+        $metadata = [ordered]@{
+            mode = "offline"
+            launch_mode = "foreground"
+            pid = $process.Id
+            local_url = "http://127.0.0.1:$LocalPort/"
+            public_url = $publicUrl
+            public_port = $PublicPort
+            started_at = [DateTimeOffset]::Now.ToString("o")
+        }
+        $metadata | ConvertTo-Json | Set-Content -LiteralPath $MetadataPath -Encoding UTF8
+        Write-ServiceLog "公開離線服務在此終端機執行：$publicUrl"
+        Write-Host "關閉此終端機或按 Ctrl+C，即停止伺服器。"
+
+        $process.WaitForExit()
+        if ($process.ExitCode -ne 0 -and (Test-Path -LiteralPath $PidPath)) {
+            throw "公開離線程序異常停止，退出碼：$($process.ExitCode)"
+        }
+    }
+    finally {
+        if ($null -ne $process) {
+            $process.Refresh()
+            if (-not $process.HasExited) {
+                Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+                $process.WaitForExit(5000) | Out-Null
+            }
+        }
+        if ($funnelEnabled) {
+            $output = & $TailscaleExecutable funnel "--https=$PublicPort" off 2>&1
+            if ($LASTEXITCODE -ne 0) {
+                Write-ServiceLog "警告：無法關閉 $PublicPort Funnel：$($output -join ' ')"
+            }
+        }
+        if ($null -ne $process -and (Test-Path -LiteralPath $PidPath)) {
+            $recordedPid = (Get-Content -LiteralPath $PidPath -Raw).Trim()
+            if ($recordedPid -eq [string]$process.Id) {
+                Remove-Item -LiteralPath $PidPath, $MetadataPath -Force -ErrorAction SilentlyContinue
+            }
+        }
+    }
+}
+
 function Stop-PublicOfflineService {
     Initialize-Directories
 
@@ -310,6 +416,7 @@ function Show-PublicOfflineStatus {
 try {
     switch ($Mode) {
         "start" { Start-PublicOfflineService }
+        "run" { Run-PublicOfflineService }
         "stop" { Stop-PublicOfflineService }
         "status" { Show-PublicOfflineStatus }
         "credentials" { Show-AdminCredentials }
