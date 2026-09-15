@@ -1,5 +1,5 @@
 {
-  "version": "corpus-v1",
+  "version": "corpus-f7fa834910a4",
   "ddl": [
     "v_unit(\"機組名\", \"電廠\", \"縣市\", \"裝置容量_瓩\", \"裝置容量_萬瓩\", \"燃料\", \"商轉日期\", \"商轉日期精度\")",
     "v_peak(\"日期\", \"機組欄位\", \"尖峰出力_萬瓩\", \"電廠\", \"粒度\", \"類別\", \"涵蓋機組數\", \"對應裝置容量_萬瓩\", \"是殘差欄\", \"是彙總欄\", \"有機組主檔\")",
@@ -291,6 +291,407 @@
       "question": "找出有容量缺口揭露的欄位",
       "intent": "other",
       "sql": "SELECT DISTINCT \"機組欄位\", \"對應裝置容量_萬瓩\" FROM v_peak WHERE \"機組欄位\" IN ('大潭 (#1-#9)', '大林(#5-#6)') LIMIT 10"
+    },
+    {
+      "id": "learned-017f1437a51671c8",
+      "question": "2025年平均發購電成本是多少？",
+      "sql": "SELECT \"年度\", \"電力來源\", \"發電方式\", \"成本_元每度\", \"決算類型\" FROM v_generation_cost WHERE \"年度\" = ? AND \"發電方式\" = ? LIMIT 20",
+      "params": [
+        2025,
+        "平均發購電成本"
+      ],
+      "intent": "generation_cost",
+      "metadata": {
+        "source": "router",
+        "created_at": "2026-09-14T02:12:13.034133+00:00",
+        "approved_by": "Codex curated on user request 2026-09-15",
+        "schema_version": "semantic-v1",
+        "data_manifest_version": "db-3b2b70c6a4479069-a4dc75fa4d58",
+        "outcome": "success",
+        "result_checksum": "584a0837593aeaf7040f4310aa8e34f39a1ed05f6610562fda5ad86b4814a815",
+        "tables": [
+          "v_generation_cost"
+        ],
+        "data_provenance": {
+          "database_version": "data-a5358a23065f451c916a302385e7245b67846f53f75bc83624ccbf22457a4854",
+          "database_sha256": "82daa8297c92544d21102ba17a4ac9ea4e917e3236507d16487996d91645c668",
+          "data_sources": [
+            {
+              "file_id": "data-a5358a23065f451c916a302385e7245b67846f53f75bc83624ccbf22457a4854:generation_cost_csv",
+              "dataset": "generation_cost_csv",
+              "display_name": "generation_cost.csv",
+              "version": "data-a5358a23065f451c916a302385e7245b67846f53f75bc83624ccbf22457a4854",
+              "sha256": "4e5af9c03bd74e36a709aa5c1afb31d321572e1c18c7f5ecb5d35e96c6e629bb",
+              "bytes": 992,
+              "present": true,
+              "views": [
+                "v_generation_cost"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "learned-4a50a26f30325fc1",
+      "question": "2026年三月有哪些機組在歲修？",
+      "sql": "SELECT \"機組名\", \"開始日期\", \"結束日期\" FROM v_outage WHERE \"日期狀態\" = ? AND \"開始日期\" <= ? AND \"結束日期\" >= ? LIMIT 100",
+      "params": [
+        "valid",
+        "2026-03-31",
+        "2026-03-01"
+      ],
+      "intent": "outage",
+      "metadata": {
+        "source": "router",
+        "created_at": "2026-09-14T02:44:17.015507+00:00",
+        "approved_by": "Codex curated on user request 2026-09-15",
+        "schema_version": "semantic-v1",
+        "data_manifest_version": "db-3b2b70c6a4479069-a4dc75fa4d58",
+        "outcome": "success",
+        "result_checksum": "bcf29ec455c6ac87390974843c543438074695e71197c1e95897146df6aa9ca5",
+        "tables": [
+          "v_outage"
+        ],
+        "data_provenance": {
+          "database_version": "data-a5358a23065f451c916a302385e7245b67846f53f75bc83624ccbf22457a4854",
+          "database_sha256": "82daa8297c92544d21102ba17a4ac9ea4e917e3236507d16487996d91645c668",
+          "data_sources": [
+            {
+              "file_id": "data-a5358a23065f451c916a302385e7245b67846f53f75bc83624ccbf22457a4854:outage_csv",
+              "dataset": "outage_csv",
+              "display_name": "outage.csv",
+              "version": "data-a5358a23065f451c916a302385e7245b67846f53f75bc83624ccbf22457a4854",
+              "sha256": "1e8daa2976d0db1b9bccf45012c043aecb4af338005ea7a10c578cc7b168557f",
+              "bytes": 6121,
+              "present": true,
+              "views": [
+                "v_outage"
+              ]
+            },
+            {
+              "file_id": "data-a5358a23065f451c916a302385e7245b67846f53f75bc83624ccbf22457a4854:units_csv",
+              "dataset": "units_csv",
+              "display_name": "units.csv",
+              "version": "data-a5358a23065f451c916a302385e7245b67846f53f75bc83624ccbf22457a4854",
+              "sha256": "e14be5bd3280bd6f7f1a02d9d7fc92c8c5f55bb9d45c2f0a5be2636243609d3e",
+              "bytes": 21364,
+              "present": true,
+              "views": [
+                "v_outage"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "learned-452b5b1a890346c2",
+      "question": "台中電廠有哪些機組？",
+      "sql": "SELECT \"機組名\", \"燃料\" FROM v_unit WHERE \"電廠\" = ? ORDER BY \"機組名\" LIMIT 50",
+      "params": [
+        "台中發電廠"
+      ],
+      "intent": "plant_units",
+      "metadata": {
+        "source": "router",
+        "created_at": "2026-09-14T05:51:56.380793+00:00",
+        "approved_by": "Codex curated on user request 2026-09-15",
+        "schema_version": "semantic-v1",
+        "data_manifest_version": "db-3b2b70c6a4479069-a4dc75fa4d58",
+        "outcome": "success",
+        "result_checksum": "3d3c6b2a700f4ee27f54c53c5f374f7e672e028e34a2ae9f81bb1bfbfd4f7af9",
+        "tables": [
+          "v_unit"
+        ],
+        "data_provenance": {
+          "database_version": "data-a5358a23065f451c916a302385e7245b67846f53f75bc83624ccbf22457a4854",
+          "database_sha256": "82daa8297c92544d21102ba17a4ac9ea4e917e3236507d16487996d91645c668",
+          "data_sources": [
+            {
+              "file_id": "data-a5358a23065f451c916a302385e7245b67846f53f75bc83624ccbf22457a4854:units_csv",
+              "dataset": "units_csv",
+              "display_name": "units.csv",
+              "version": "data-a5358a23065f451c916a302385e7245b67846f53f75bc83624ccbf22457a4854",
+              "sha256": "e14be5bd3280bd6f7f1a02d9d7fc92c8c5f55bb9d45c2f0a5be2636243609d3e",
+              "bytes": 21364,
+              "present": true,
+              "views": [
+                "v_unit"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "learned-15c53ad07fc2eb9b",
+      "question": "2026年1月1日的備轉容量是多少？",
+      "sql": "SELECT \"日期\", \"備轉容量_萬瓩\" FROM v_system WHERE 1 = 1 AND \"日期\" BETWEEN ? AND ? ORDER BY \"日期\" LIMIT 200",
+      "params": [
+        "2026-01-01",
+        "2026-01-01"
+      ],
+      "intent": "system_metric",
+      "metadata": {
+        "source": "router",
+        "created_at": "2026-09-14T05:52:33.140110+00:00",
+        "approved_by": "Codex curated on user request 2026-09-15",
+        "schema_version": "semantic-v1",
+        "data_manifest_version": "db-3b2b70c6a4479069-a4dc75fa4d58",
+        "outcome": "success",
+        "result_checksum": "f0d97f7514a6dec9922ac7ed15ee2dfe0dfdebeb996fda658a5fa672e478316e",
+        "tables": [
+          "v_system"
+        ],
+        "data_provenance": {
+          "database_version": "data-a5358a23065f451c916a302385e7245b67846f53f75bc83624ccbf22457a4854",
+          "database_sha256": "82daa8297c92544d21102ba17a4ac9ea4e917e3236507d16487996d91645c668",
+          "data_sources": [
+            {
+              "file_id": "data-a5358a23065f451c916a302385e7245b67846f53f75bc83624ccbf22457a4854:daily_csv",
+              "dataset": "daily_csv",
+              "display_name": "daily.csv",
+              "version": "data-a5358a23065f451c916a302385e7245b67846f53f75bc83624ccbf22457a4854",
+              "sha256": "b502dd35d3d92ca3bacf5d6db5a3f71e89877913a0e6c77eb29e32e42b6046a8",
+              "bytes": 171810,
+              "present": true,
+              "views": [
+                "v_system"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "learned-3c306ba9d0baeb1a",
+      "question": "2026年7月每天的備轉容量率",
+      "sql": "SELECT \"日期\", \"備轉容量率_pct\" FROM v_system WHERE 1 = 1 AND \"日期\" BETWEEN ? AND ? ORDER BY \"日期\" LIMIT 200",
+      "params": [
+        "2026-07-01",
+        "2026-07-31"
+      ],
+      "intent": "system_metric",
+      "metadata": {
+        "source": "router",
+        "created_at": "2026-09-14T05:54:17.207678+00:00",
+        "approved_by": "Codex curated on user request 2026-09-15",
+        "schema_version": "semantic-v1",
+        "data_manifest_version": "db-3b2b70c6a4479069-a4dc75fa4d58",
+        "outcome": "success",
+        "result_checksum": "c0e8527f5b405f9fda78c9ee410eeafc1e5fd1f1b1b2baee33144b2161aca9fb",
+        "tables": [
+          "v_system"
+        ],
+        "data_provenance": {
+          "database_version": "data-a5358a23065f451c916a302385e7245b67846f53f75bc83624ccbf22457a4854",
+          "database_sha256": "82daa8297c92544d21102ba17a4ac9ea4e917e3236507d16487996d91645c668",
+          "data_sources": [
+            {
+              "file_id": "data-a5358a23065f451c916a302385e7245b67846f53f75bc83624ccbf22457a4854:daily_csv",
+              "dataset": "daily_csv",
+              "display_name": "daily.csv",
+              "version": "data-a5358a23065f451c916a302385e7245b67846f53f75bc83624ccbf22457a4854",
+              "sha256": "b502dd35d3d92ca3bacf5d6db5a3f71e89877913a0e6c77eb29e32e42b6046a8",
+              "bytes": 171810,
+              "present": true,
+              "views": [
+                "v_system"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "learned-e7f4fe27d8f4049a",
+      "question": "2026年7月20日出力最高的10台機組",
+      "sql": "SELECT \"機組欄位\", \"尖峰出力_萬瓩\" FROM v_peak WHERE \"日期\" = ? ORDER BY \"尖峰出力_萬瓩\" DESC LIMIT 10",
+      "params": [
+        "2026-07-20"
+      ],
+      "intent": "daily_ranking",
+      "metadata": {
+        "source": "router",
+        "created_at": "2026-09-14T06:12:45.599860+00:00",
+        "approved_by": "Codex curated on user request 2026-09-15",
+        "schema_version": "semantic-v1",
+        "data_manifest_version": "db-3b2b70c6a4479069-a4dc75fa4d58",
+        "outcome": "success",
+        "result_checksum": "6fc7ac3aac68797405547f9d808a9ee0b9b5f23e876d417baee375d99ebe30e2",
+        "tables": [
+          "v_peak"
+        ],
+        "data_provenance": {
+          "database_version": "data-a5358a23065f451c916a302385e7245b67846f53f75bc83624ccbf22457a4854",
+          "database_sha256": "82daa8297c92544d21102ba17a4ac9ea4e917e3236507d16487996d91645c668",
+          "data_sources": [
+            {
+              "file_id": "data-a5358a23065f451c916a302385e7245b67846f53f75bc83624ccbf22457a4854:crosswalk_csv",
+              "dataset": "crosswalk_csv",
+              "display_name": "crosswalk.csv",
+              "version": "data-a5358a23065f451c916a302385e7245b67846f53f75bc83624ccbf22457a4854",
+              "sha256": "4119ef328f86e992a07641198ccecceb6b60708e437e093ee00c0dac5965d60e",
+              "bytes": 6031,
+              "present": true,
+              "views": [
+                "v_peak"
+              ]
+            },
+            {
+              "file_id": "data-a5358a23065f451c916a302385e7245b67846f53f75bc83624ccbf22457a4854:daily_csv",
+              "dataset": "daily_csv",
+              "display_name": "daily.csv",
+              "version": "data-a5358a23065f451c916a302385e7245b67846f53f75bc83624ccbf22457a4854",
+              "sha256": "b502dd35d3d92ca3bacf5d6db5a3f71e89877913a0e6c77eb29e32e42b6046a8",
+              "bytes": 171810,
+              "present": true,
+              "views": [
+                "v_peak"
+              ]
+            },
+            {
+              "file_id": "data-a5358a23065f451c916a302385e7245b67846f53f75bc83624ccbf22457a4854:daily_long_csv",
+              "dataset": "daily_long_csv",
+              "display_name": "daily_long.csv",
+              "version": "data-a5358a23065f451c916a302385e7245b67846f53f75bc83624ccbf22457a4854",
+              "sha256": "c84d9f92e8087cfea82fdee7a4720c500a38a21b790c56ce33019f283b3a505e",
+              "bytes": 3791035,
+              "present": true,
+              "views": [
+                "v_peak"
+              ]
+            },
+            {
+              "file_id": "data-a5358a23065f451c916a302385e7245b67846f53f75bc83624ccbf22457a4854:units_csv",
+              "dataset": "units_csv",
+              "display_name": "units.csv",
+              "version": "data-a5358a23065f451c916a302385e7245b67846f53f75bc83624ccbf22457a4854",
+              "sha256": "e14be5bd3280bd6f7f1a02d9d7fc92c8c5f55bb9d45c2f0a5be2636243609d3e",
+              "bytes": 21364,
+              "present": true,
+              "views": [
+                "v_peak"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "learned-542a0b0d6df5ef5a",
+      "question": "2025年1月15日出力前三名機組",
+      "sql": "SELECT \"機組欄位\", \"尖峰出力_萬瓩\" FROM v_peak WHERE \"日期\" = ? ORDER BY \"尖峰出力_萬瓩\" DESC LIMIT 3",
+      "params": [
+        "2025-01-15"
+      ],
+      "intent": "daily_ranking",
+      "metadata": {
+        "source": "router",
+        "created_at": "2026-09-14T06:12:46.221419+00:00",
+        "approved_by": "Codex curated on user request 2026-09-15",
+        "schema_version": "semantic-v1",
+        "data_manifest_version": "db-3b2b70c6a4479069-a4dc75fa4d58",
+        "outcome": "success",
+        "result_checksum": "1cf7086dc70b71950621afbd4f0024fbc72076b088f7a88aa5245f343c35450e",
+        "tables": [
+          "v_peak"
+        ],
+        "data_provenance": {
+          "database_version": "data-a5358a23065f451c916a302385e7245b67846f53f75bc83624ccbf22457a4854",
+          "database_sha256": "82daa8297c92544d21102ba17a4ac9ea4e917e3236507d16487996d91645c668",
+          "data_sources": [
+            {
+              "file_id": "data-a5358a23065f451c916a302385e7245b67846f53f75bc83624ccbf22457a4854:crosswalk_csv",
+              "dataset": "crosswalk_csv",
+              "display_name": "crosswalk.csv",
+              "version": "data-a5358a23065f451c916a302385e7245b67846f53f75bc83624ccbf22457a4854",
+              "sha256": "4119ef328f86e992a07641198ccecceb6b60708e437e093ee00c0dac5965d60e",
+              "bytes": 6031,
+              "present": true,
+              "views": [
+                "v_peak"
+              ]
+            },
+            {
+              "file_id": "data-a5358a23065f451c916a302385e7245b67846f53f75bc83624ccbf22457a4854:daily_csv",
+              "dataset": "daily_csv",
+              "display_name": "daily.csv",
+              "version": "data-a5358a23065f451c916a302385e7245b67846f53f75bc83624ccbf22457a4854",
+              "sha256": "b502dd35d3d92ca3bacf5d6db5a3f71e89877913a0e6c77eb29e32e42b6046a8",
+              "bytes": 171810,
+              "present": true,
+              "views": [
+                "v_peak"
+              ]
+            },
+            {
+              "file_id": "data-a5358a23065f451c916a302385e7245b67846f53f75bc83624ccbf22457a4854:daily_long_csv",
+              "dataset": "daily_long_csv",
+              "display_name": "daily_long.csv",
+              "version": "data-a5358a23065f451c916a302385e7245b67846f53f75bc83624ccbf22457a4854",
+              "sha256": "c84d9f92e8087cfea82fdee7a4720c500a38a21b790c56ce33019f283b3a505e",
+              "bytes": 3791035,
+              "present": true,
+              "views": [
+                "v_peak"
+              ]
+            },
+            {
+              "file_id": "data-a5358a23065f451c916a302385e7245b67846f53f75bc83624ccbf22457a4854:units_csv",
+              "dataset": "units_csv",
+              "display_name": "units.csv",
+              "version": "data-a5358a23065f451c916a302385e7245b67846f53f75bc83624ccbf22457a4854",
+              "sha256": "e14be5bd3280bd6f7f1a02d9d7fc92c8c5f55bb9d45c2f0a5be2636243609d3e",
+              "bytes": 21364,
+              "present": true,
+              "views": [
+                "v_peak"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "learned-40bae6b16d56c684",
+      "question": "輕柴油機組有幾台",
+      "sql": "SELECT COUNT(*) AS \"台數\" FROM v_unit WHERE \"燃料\" = ? LIMIT 1",
+      "params": [
+        "輕柴油"
+      ],
+      "intent": "fuel_stats",
+      "metadata": {
+        "source": "router",
+        "created_at": "2026-09-14T06:12:48.025998+00:00",
+        "approved_by": "Codex curated on user request 2026-09-15",
+        "schema_version": "semantic-v1",
+        "data_manifest_version": "db-3b2b70c6a4479069-a4dc75fa4d58",
+        "outcome": "success",
+        "result_checksum": "5646a0b468599aa3725aa62d6517104c3b1918771473f20d53a5078a2f21560c",
+        "tables": [
+          "v_unit"
+        ],
+        "data_provenance": {
+          "database_version": "data-a5358a23065f451c916a302385e7245b67846f53f75bc83624ccbf22457a4854",
+          "database_sha256": "82daa8297c92544d21102ba17a4ac9ea4e917e3236507d16487996d91645c668",
+          "data_sources": [
+            {
+              "file_id": "data-a5358a23065f451c916a302385e7245b67846f53f75bc83624ccbf22457a4854:units_csv",
+              "dataset": "units_csv",
+              "display_name": "units.csv",
+              "version": "data-a5358a23065f451c916a302385e7245b67846f53f75bc83624ccbf22457a4854",
+              "sha256": "e14be5bd3280bd6f7f1a02d9d7fc92c8c5f55bb9d45c2f0a5be2636243609d3e",
+              "bytes": 21364,
+              "present": true,
+              "views": [
+                "v_unit"
+              ]
+            }
+          ]
+        }
+      }
     }
   ]
 }
