@@ -5,14 +5,20 @@
 ![Project](https://img.shields.io/badge/Project-Graduation%20Project-1a5fb4)
 ![Domain](https://img.shields.io/badge/Domain-Taipower%20Open%20Data-14498c)
 ![Interface](https://img.shields.io/badge/Interface-Text2SQL-2e7d32)
-![Status](https://img.shields.io/badge/Status-Data%20Alignment%20Completed-c25e00)
+![Status](https://img.shields.io/badge/Status-Live%20Offline%20Demo-2e7d32)
+
+## 線上展示｜直接試用
+
+**[開啟 PowerQuery TW 公開展示](https://p215-2203-nb01.tail177cc6.ts.net:8443/)**
+
+訪客不需登入，也不需提供 API key。開啟後可在「查詢中心」點選範例問句，或輸入「天然氣機組共有幾台？」試查；也可瀏覽資料總覽、圖表和查詢結果。公開展示預設使用離線規則路由與唯讀 SQL 查詢，未涵蓋的問題會說明限制，不代表線上 LLM 的生成能力。此網址由專案電腦透過 Tailscale Funnel 提供；電腦休眠、關機或網路中斷時會暫時無法連線。
 
 PowerQuery TW 是一套以 **Text2SQL** 為核心的畢業專題。使用者能直接用中文詢問台電公開資料，系統負責理解問題、產生 SQL、驗證查詢安全性與資料語意，最後以文字、指標、圖表及表格呈現結果。
 
 本專題不只追求「能產生 SQL」，更重視一個實務資料系統應具備的能力：**知道哪些問題可以回答、哪些答案需要揭露限制，以及哪些問題不應產生一個看似合理但其實錯誤的數字。**
 
 > [!IMPORTANT]
-> 目前已完成兩份台電資料集的清理、長表轉換、機組名稱對齊及語意陷阱盤點；Text2SQL 管線、API 與前端仍依規格分階段開發中。本文會明確區分「已完成成果」與「規劃功能」。
+> 目前已實作資料清理與對齊、SQLite 語意檢視、受限 Text2SQL 查詢管線、FastAPI 與網頁工作台，並提供公開離線展示。離線模式使用已審核的確定性規則；線上 LLM 是可選模式，需要另外設定 API key。下文的系統設計也保留尚待擴充的方向。
 
 ## 專題亮點
 
@@ -48,7 +54,7 @@ PowerQuery TW 是一套以 **Text2SQL** 為核心的畢業專題。使用者能�
 
 ## 系統設計
 
-以下為規格定案後的目標架構；目前已完成圖中「資料擷取／清理」及「名稱與容量對齊」部分。
+以下為系統架構與持續擴充的目標流程。資料擷取／清理、名稱與容量對齊、SQLite 語意檢視、查詢守門及網頁工作台已有實作；部分資料來源和線上模型能力仍依可取得的資料與設定逐步擴充。
 
 ```mermaid
 flowchart LR
@@ -94,7 +100,7 @@ flowchart LR
 
 ### 增量語料學習
 
-系統規劃建立可追溯的語料更新流程，讓常見新問法與人工修正能逐步改善 Text2SQL 表現：
+系統已建立可追溯的候選語料與驗證流程，讓常見新問法與人工修正能逐步改善 Text2SQL 表現：
 
 ```text
 成功查詢／人工修正
@@ -140,7 +146,7 @@ staging corpus → benchmark 回歸通過 → 正式 corpus
 
 ## 資料模型
 
-規劃以 SQLite 建立星狀模型，將原始資料的複雜欄名與不同粒度轉換成對 LLM 較穩定的語意層：
+系統以 SQLite 建立星狀模型，將原始資料的複雜欄名與不同粒度轉換成較穩定的語意層：
 
 ```text
 dim_plant ──< dim_unit ──< bridge_b_column
@@ -171,9 +177,11 @@ v_*             提供給 Text2SQL 的中文語意檢視
 
 資料使用遵循「政府資料開放授權條款－第 1 版」。
 
-## 快速開始：重現目前成果
+## 快速開始：本機試用與重現資料對齊
 
-目前的資料對齊流程只使用 Python 標準函式庫，不需額外安裝套件。
+若只想看專案，直接使用上方的[公開展示](https://p215-2203-nb01.tail177cc6.ts.net:8443/)。本機執行完整網頁工作台需要 Python 3.11 以上、`uv`、專案依賴與 SQLite 資料快照；啟動步驟見[使用方式](SERVING.md)。
+
+只重現資料對齊成果時，`taipower_align` 流程使用 Python 標準函式庫，不需額外安裝套件。
 
 ```bash
 cd taipower_align
@@ -199,7 +207,7 @@ python fetch.py --extra   # 額外下載備轉容量、歲修排程等資料
 
 ## 評測設計
 
-本專題會同時評估「查詢做不做得到」與「系統會不會阻止錯誤答案」，避免只用 SQL 字串相似度美化成果。
+本專題同時評估「查詢做不做得到」與「系統會不會阻止錯誤答案」，避免只用 SQL 字串相似度美化成果。
 
 | 指標 | 衡量目的 |
 |---|---|
@@ -209,26 +217,24 @@ python fetch.py --extra   # 額外下載備轉容量、歲修排程等資料
 | 守門誤攔率 | 合法問題是否被錯誤拒絕 |
 | 語料內／語料外表現 | 區分記憶題型與真正泛化能力 |
 
-規劃驗收基準為：語意陷阱命中率至少 95%、誤攔率不高於 5%，並獨立呈現 `in_corpus=false` 題組結果。另以 ablation study 比較移除檢索、對齊資訊與語意守門後的表現差異，量化各模組的實際貢獻。
+驗收基準為：語意陷阱命中率至少 95%、誤攔率不高於 5%，並獨立呈現 `in_corpus=false` 題組結果。目前的報告是**離線確定性規則基準**；未設定 API key 時，線上 LLM 對照不會執行。詳細指標與對照實驗的界線見[離線評測](EVALUATION.md)。
 
 ## 專案結構
 
 ```text
-text2sql/
+text2sql_project/
 ├── README.md                         # 專案入口
-├── taipower_align/                   # 已完成：資料清理、對齊與驗證
-│   ├── align.py
-│   ├── final.py
-│   ├── fetch.py
-│   ├── crosswalk.csv
-│   └── daily_long.csv
-├── scripts/                          # 台電公開資料下載腳本
-├── docs/AI_AGENT_COLLABORATION.md    # AI Agent 多人協作與整合規範
-├── docs/superpowers/specs/           # 系統、資料、評測完整規格
-└── 參考資料/                          # UI、架構、元件與 API 參考文件
+├── taipower_align/                   # 原始資料清理、對齊與驗證
+├── src/ingest/                        # 資料擷取與 SQLite 建置
+├── src/align/                         # 名稱、粒度與資料陷阱對齊
+├── src/text2sql/                      # 意圖、檢索、查詢與雙守門
+├── src/serving/                       # FastAPI、網頁工作台與資料管理
+├── src/eval/                          # 題庫評測與語料晉升驗證
+├── corpus/、benchmarks/、tests/        # 語料、獨立題庫與測試
+├── scripts/                          # 下載與公開離線服務腳本
+├── docs/                              # 使用說明、團隊分工與系統規格
+└── PUBLIC_OFFLINE_SERVING.md          # 公開離線展示的啟停與注意事項
 ```
-
-後續實作將依規格加入 `src/ingest`、`src/align`、`src/text2sql`、`src/serving`、`corpus`、`benchmarks` 與 `tests` 等模組。
 
 ## 開發里程碑
 
@@ -236,11 +242,11 @@ text2sql/
 |---|---|:---:|
 | Phase 1 | 原始資料盤點、下載與版本管理 | ✅ |
 | Phase 2 | 名稱對齊、長表轉換與資料陷阱分析 | ✅ |
-| Phase 3 | SQLite 星狀模型與中文語意檢視 | ⬜ |
-| Phase 4 | Text2SQL 生成、檢索、失敗重試與增量語料索引 | ⬜ |
-| Phase 5 | SQL 安全守門與資料語意守門 | ⬜ |
-| Phase 6 | 題庫、語料晉升閘門、離線評測與 ablation study | ⬜ |
-| Phase 7 | FastAPI、對話式介面與自動圖表回答 | ⬜ |
+| Phase 3 | SQLite 星狀模型與中文語意檢視 | ✅ |
+| Phase 4 | 離線規則查詢、檢索、失敗重試與增量語料索引 | ✅ |
+| Phase 5 | SQL 安全守門與資料語意守門 | ✅ |
+| Phase 6 | 題庫、語料晉升閘門與離線評測；線上模型對照待執行 | 🟨 |
+| Phase 7 | FastAPI、網頁工作台與自動圖表回答 | ✅ |
 
 ## 已知限制
 
@@ -254,15 +260,13 @@ text2sql/
 
 ## 團隊協作與文件
 
-- [AI Agent 多人協作與整合規範](docs/AI_AGENT_COLLABORATION.md)
+- [團隊分工](docs/TEAM_4_ROLES.md)
 - [完整系統規格](docs/superpowers/specs/2026-09-09-text2sql-taipower-design.md)
 - [資料對齊方法與驗證結果](taipower_align/README.md)
-- [介面總覽與重現流程](參考資料/00-總覽與重現流程.md)
-- [設計 Token 與視覺語言](參考資料/01-設計Token.md)
-- [前端架構與核心機制](參考資料/02-架構與核心機制.md)
-- [元件規格](參考資料/03-元件規格.md)
-- [API 契約](參考資料/04-API契約.md)
-- [無障礙與響應式設計](參考資料/05-無障礙與響應式.md)
+- [網頁工作台與 API 使用方式](SERVING.md)
+- [公開離線服務與可用性說明](PUBLIC_OFFLINE_SERVING.md)
+- [離線評測及其界線](EVALUATION.md)
+- [實作 API 契約](src/serving/API_CONTRACT.md)
 
 ---
 
