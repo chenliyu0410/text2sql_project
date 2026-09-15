@@ -157,9 +157,9 @@ class SemanticGuard:
             return self._decision(
                 "refuse",
                 "ANNUAL_GENERATION_UNAVAILABLE",
-                "目前資料只有每日系統尖峰時刻的瞬時出力，沒有各電廠全年發電量，無法判定發電量最高的電廠。",
+                "目前資料只有每日系統尖峰時刻的瞬時出力，沒有各電廠全年發電量，無法判定發電量最高的電廠。"
+                "要比較各電廠全年發電量，請使用各廠年度電量或逐時發電資料。",
                 f"{year}年系統尖峰負載最高是哪一天？",
-                "如需比較各電廠全年發電量，請改用各廠年度電量或逐時發電資料。",
                 evidence={
                     "available_metric": "每日系統尖峰時刻出力_萬瓩",
                     "missing_metric": "電廠年度發電量",

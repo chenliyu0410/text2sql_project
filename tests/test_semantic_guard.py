@@ -173,7 +173,8 @@ def test_annual_plant_generation_ranking_requires_energy_data(
 
     assert (decision.code, decision.severity) == ("ANNUAL_GENERATION_UNAVAILABLE", "refuse")
     assert "發電量" in decision.reason
-    assert "2025年系統尖峰負載最高是哪一天？" in decision.suggestions
+    assert "年度電量或逐時發電資料" in decision.reason
+    assert decision.suggestions == ("2025年系統尖峰負載最高是哪一天？",)
 
 
 @pytest.mark.parametrize(

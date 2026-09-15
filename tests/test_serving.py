@@ -374,7 +374,8 @@ def test_annual_plant_generation_question_explains_unavailable_metric(client: Te
     assert payload["success"] is False
     assert payload["error_code"] == "ANNUAL_GENERATION_UNAVAILABLE"
     assert payload["severity"] == "refuse"
-    assert "2025年系統尖峰負載最高是哪一天？" in payload["suggestions"]
+    assert "年度電量或逐時發電資料" in payload["error"]
+    assert payload["suggestions"] == ["2025年系統尖峰負載最高是哪一天？"]
 
 
 def test_query_validation_rejects_blank_input(client: TestClient) -> None:
