@@ -365,6 +365,18 @@ def test_semantic_refusal_is_a_structured_business_response(client: TestClient) 
     assert payload["severity"] == "refuse"
 
 
+@pytest.mark.e2e
+def test_annual_plant_generation_question_explains_unavailable_metric(client: TestClient) -> None:
+    response = client.post("/api/query", json={"question": "2025發電最高的電廠是哪個?"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["success"] is False
+    assert payload["error_code"] == "ANNUAL_GENERATION_UNAVAILABLE"
+    assert payload["severity"] == "refuse"
+    assert "2025年系統尖峰負載最高是哪一天？" in payload["suggestions"]
+
+
 def test_query_validation_rejects_blank_input(client: TestClient) -> None:
     assert client.post("/api/query", json={"question": "   "}).status_code == 422
 

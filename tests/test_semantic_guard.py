@@ -157,3 +157,36 @@ def test_unspecified_generation_cost_requires_clarification(
 
     assert (decision.code, decision.severity) == ("GENERATION_COST_TYPE_REQUIRED", "clarify")
     assert "2025年火力發電成本是多少？" in decision.suggestions
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "2025發電最高的電廠是哪個?",
+        "2025年哪個電廠的發電量最高？",
+    ],
+)
+def test_annual_plant_generation_ranking_requires_energy_data(
+    semantic_guard: SemanticGuard, question: str
+) -> None:
+    decision = semantic_guard.check_question(question, extract_entities(question))
+
+    assert (decision.code, decision.severity) == ("ANNUAL_GENERATION_UNAVAILABLE", "refuse")
+    assert "發電量" in decision.reason
+    assert "2025年系統尖峰負載最高是哪一天？" in decision.suggestions
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "2025年火力發電成本是多少？",
+        "2025年系統尖峰負載最高是哪一天？",
+        "2025年台中#1最高尖峰出力是多少？",
+    ],
+)
+def test_annual_generation_guard_keeps_supported_metrics_available(
+    semantic_guard: SemanticGuard, question: str
+) -> None:
+    decision = semantic_guard.check_question(question, extract_entities(question))
+
+    assert decision.code == "OK"

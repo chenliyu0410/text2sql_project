@@ -140,6 +140,32 @@ class SemanticGuard:
                 evidence={"metric": "尖峰出力_萬瓩", "shape": "cross-date sum"},
             )
 
+        annual_plant_ranking = (
+            "成本" not in compact
+            and "電廠" in compact
+            and "發電" in compact
+            and any(word in compact for word in ("最高", "最大", "最多", "第一"))
+            and entities.date_range is not None
+            and entities.explicit_date is None
+            and (
+                "發電量" in compact
+                or not any(word in compact for word in ("尖峰", "出力", "功率", "容量"))
+            )
+        )
+        if annual_plant_ranking:
+            year = entities.date_range.start[:4]
+            return self._decision(
+                "refuse",
+                "ANNUAL_GENERATION_UNAVAILABLE",
+                "目前資料只有每日系統尖峰時刻的瞬時出力，沒有各電廠全年發電量，無法判定發電量最高的電廠。",
+                f"{year}年系統尖峰負載最高是哪一天？",
+                "如需比較各電廠全年發電量，請改用各廠年度電量或逐時發電資料。",
+                evidence={
+                    "available_metric": "每日系統尖峰時刻出力_萬瓩",
+                    "missing_metric": "電廠年度發電量",
+                },
+            )
+
         unit_mismatch = (
             ("尖峰出力" in compact and "裝置容量瓩" in compact)
             or ("萬瓩" in compact and "容量瓩" in compact)
